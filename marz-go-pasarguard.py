@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Marzban to Pasarguard Migration Menu
-Version: 1.0.5
+Version: 1.0.7
 A tool to change database ports and migrate data from Marzban to Pasarguard.
 """
 
@@ -116,16 +116,15 @@ def migrate_admins(marzban_conn, pasarguard_conn):
                 """
                 INSERT IGNORE INTO admins
                 (id, username, hashed_password, created_at, is_sudo,
-                 password_reset_at, telegram_id, discord_webhook, is_disabled,
-                 sub_template, sub_domain, profile_title, support_url, discord_id)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                 password_reset_at, telegram_id, discord_webhook, used_traffic,
+                 is_disabled, sub_template, sub_domain, profile_title, support_url, discord_id)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                 """,
                 (
                     a["id"], a["username"], a["hashed_password"],
                     a["created_at"], a["is_sudo"], a["password_reset_at"],
-                    a["telegram_id"], a["discord_webhook"], a.get("is_disabled", 0),
-                    a.get("sub_template"), a.get("sub_domain"), a.get("profile_title"),
-                    a.get("support_url"), a.get("discord_id")
+                    a["telegram_id"], a["discord_webhook"], a.get("users_usage", 0),
+                    0, None, None, None, None, None
                 ),
             )
     pasarguard_conn.commit()
@@ -383,7 +382,7 @@ def display_menu():
     clear_screen()
     print(f"{CYAN}┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓")
     print(f"┃{YELLOW}          Marz ➜ Pasarguard              {CYAN}┃")
-    print(f"┃{YELLOW}              v1.0.5                     {CYAN}┃")
+    print(f"┃{YELLOW}              v1.0.7                     {CYAN}┃")
     print(f"┃{YELLOW}         Powered by: ASiS SK             {CYAN}┃")
     print(f"┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛{RESET}")
     print()
