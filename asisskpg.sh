@@ -13,11 +13,10 @@ REPO_URL="https://raw.githubusercontent.com/ASiSSK/go-to-pasarguard/main"
 # Download required files
 echo "Downloading required files..."
 wget -q "$REPO_URL/marz-go-pasarguard.py" -O marz-go-pasarguard.py
-wget -q "$REPO_URL/migration_utils.py" -O migration_utils.py
 wget -q "$REPO_URL/requirements.txt" -O requirements.txt
 
 # Check if downloads were successful
-for file in marz-go-pasarguard.py migration_utils.py requirements.txt; do
+for file in marz-go-pasarguard.py requirements.txt; do
     if [ ! -f "$file" ]; then
         echo "Error: Failed to download $file"
         exit 1
@@ -33,7 +32,6 @@ pip3 install -r requirements.txt
 # Move files to /usr/local/bin
 echo "Setting up asis-pg command..."
 mv marz-go-pasarguard.py /usr/local/bin/asis-pg
-mv migration_utils.py /usr/local/bin/migration_utils.py
 chmod +x /usr/local/bin/asis-pg
 
 # Clean up
