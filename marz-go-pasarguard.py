@@ -5,6 +5,7 @@ Version: 1.0.2
 A tool to change database ports and migrate data from Marzban to Pasarguard.
 """
 
+import re
 import os
 import subprocess
 import sys
