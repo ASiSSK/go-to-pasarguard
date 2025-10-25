@@ -30,5 +30,4 @@ A Python-based automation tool to migrate data and manage database port configur
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/yourusername/marzban-to-pasarguard.git
-   cd marzban-to-pasarguard
+   git clone https://github.com/ASiSSK/go-to-pasarguard.git cd go-to-pasarguard
