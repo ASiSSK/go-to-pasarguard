@@ -1,57 +1,20 @@
-#!/usr/bin/env python3
-"""
-Migration Utilities for Marzban to Pasarguard
-Contains helper functions for database migration.
-"""
-
 import pymysql
 import json
 import datetime
-import getpass
 from typing import Dict, Any, Optional
 from dotenv import load_dotenv
 import os
 
-# Helper: Smart input with defaults
-def ask(prompt: str, default: str = "") -> str:
-    if default:
-        response = input(f"{prompt} [{default}]: ").strip()
-        return response if response else default
-    else:
-        while True:
-            response = input(f"{prompt}: ").strip()
-            if response:
-                return response
-            print("  This field cannot be empty.")
-
-# Function to get database config from .env file
-def get_db_config(env_path: str) -> Dict[str, Any]:
-    """Load database configuration from .env file."""
-    load_dotenv(env_path)
-    host = os.getenv("DB_HOST", "127.0.0.1")
-    port = int(os.getenv("DB_PORT", "3306"))
-    user = os.getenv("DB_USER", ask("Database username"))
-    password = os.getenv("DB_PASSWORD", getpass.getpass("Database password: "))
-    db_name = os.getenv("DB_NAME", ask("Database name"))
-    return {
-        "host": host,
-        "port": port,
-        "user": user,
-        "password": password,
-        "database": db_name,
-        "charset": "utf8mb4",
-        "cursorclass": pymysql.cursors.DictCursor,
-    }
-
-# Smart cleaners
+# Helper: Safe ALPN cleaner
 def safe_alpn(value: Optional[str]) -> Optional[str]:
-    """Convert 'none', '', 'null' → NULL for Pasarguard."""
+    """Convert 'none', '', 'null' → NULL for Pasarguard"""
     if not value or str(value).strip().lower() in ["none", "null", ""]:
         return None
     return str(value).strip()
 
+# Helper: Safe JSON conversion
 def safe_json(value: Any) -> Optional[str]:
-    """Safely convert to JSON or return NULL."""
+    """Safely convert to JSON or return NULL"""
     if value is None or value == "":
         return None
     try:
@@ -61,21 +24,66 @@ def safe_json(value: Any) -> Optional[str]:
     except:
         return None
 
+# Helper: Load .env file
+def load_env_file(env_path: str) -> Dict[str, str]:
+    """Load .env file and return key-value pairs."""
+    load_dotenv(env_path)
+    return dict(os.environ)
+
+# Helper: Parse SQLALCHEMY_DATABASE_URL
+def parse_sqlalchemy_url(url: str) -> Dict[str, Any]:
+    """Parse SQLALCHEMY_DATABASE_URL to extract host, port, user, password, db."""
+    import re
+    pattern = r"mysql\+asyncmy://([^:]+):([^@]+)@([^:]+):(\d+)/(.+)"
+    match = re.match(pattern, url)
+    if not match:
+        raise ValueError(f"Invalid SQLALCHEMY_DATABASE_URL: {url}")
+    return {
+        "user": match.group(1),
+        "password": match.group(2),
+        "host": match.group(3),
+        "port": int(match.group(4)),
+        "db": match.group(5)
+    }
+
+# Helper: Get DB config from .env
+def get_db_config(env_path: str) -> Dict[str, Any]:
+    """Get database config from .env file."""
+    if not os.path.exists(env_path):
+        raise FileNotFoundError(f"Environment file {env_path} not found")
+    env = load_env_file(env_path)
+    sqlalchemy_url = env.get("SQLALCHEMY_DATABASE_URL")
+    if not sqlalchemy_url:
+        raise ValueError(f"SQLALCHEMY_DATABASE_URL not found in {env_path}")
+    config = parse_sqlalchemy_url(sqlalchemy_url)
+    config["charset"] = "utf8mb4"
+    config["cursorclass"] = pymysql.cursors.DictCursor
+    return config
+
+# Helper: Read xray_config.json
+def read_xray_config() -> Dict[str, Any]:
+    """Read xray_config.json from /var/lib/marzban."""
+    path = "/var/lib/marzban/xray_config.json"
+    try:
+        with open(path, 'r', encoding='utf-8') as file:
+            return json.load(file)
+    except FileNotFoundError:
+        raise FileNotFoundError(f"xray_config.json not found at {path}")
+    except Exception as e:
+        raise Exception(f"Error reading xray_config.json: {str(e)}")
+
 # Connection
 def connect(cfg: Dict[str, Any]):
-    """Connect to the database."""
+    """Connect to database."""
     try:
         conn = pymysql.connect(**cfg)
-        print(f"Connected to {cfg['database']}@{cfg['host']}:{cfg['port']}")
         return conn
     except Exception as e:
-        print(f"Connection failed: {e}")
-        sys.exit(1)
+        raise Exception(f"Connection failed: {str(e)}")
 
-# Migration Functions
+# Migration: Admins
 def migrate_admins(marzban_conn, pasarguard_conn):
     """Migrate admins from Marzban to Pasarguard."""
-    print("Migrating admins...")
     with marzban_conn.cursor() as cur:
         cur.execute("SELECT * FROM admins")
         admins = cur.fetchall()
@@ -98,17 +106,16 @@ def migrate_admins(marzban_conn, pasarguard_conn):
     pasarguard_conn.commit()
     return len(admins)
 
+# Migration: Default Group
 def ensure_default_group(pasarguard_conn):
     """Ensure default group exists in Pasarguard."""
     with pasarguard_conn.cursor() as cur:
         cur.execute("SELECT COUNT(*) AS cnt FROM groups")
         if cur.fetchone()["cnt"] == 0:
             cur.execute("INSERT INTO groups (id, name, is_disabled) VALUES (1,'DefaultGroup',0)")
-            print("Default group created.")
-        else:
-            print("Default group already exists.")
     pasarguard_conn.commit()
 
+# Migration: Default Core Config
 def ensure_default_core_config(pasarguard_conn):
     """Ensure default core config exists in Pasarguard."""
     with pasarguard_conn.cursor() as cur:
@@ -137,11 +144,9 @@ def ensure_default_core_config(pasarguard_conn):
                 """,
                 json.dumps(cfg),
             )
-            print("Default core config created.")
-        else:
-            print("Default core config already exists.")
     pasarguard_conn.commit()
 
+# Migration: Inbounds
 def migrate_inbounds_and_associate(marzban_conn, pasarguard_conn):
     """Migrate inbounds and associate with default group."""
     with marzban_conn.cursor() as cur:
@@ -156,8 +161,9 @@ def migrate_inbounds_and_associate(marzban_conn, pasarguard_conn):
     pasarguard_conn.commit()
     return len(inbounds)
 
-def migrate_hosts(marzban_conn, pasarguard_conn):
-    """Migrate hosts with smart ALPN fix."""
+# Migration: Hosts
+def migrate_hosts(marzban_conn, pasarguard_conn, safe_alpn_func):
+    """Migrate hosts with ALPN fix."""
     with marzban_conn.cursor() as cur:
         cur.execute("SELECT * FROM hosts")
         hosts = cur.fetchall()
@@ -175,7 +181,7 @@ def migrate_hosts(marzban_conn, pasarguard_conn):
                 """,
                 (
                     h["id"], h["remark"], h["address"], h["port"], h["inbound_tag"],
-                    h["sni"], h["host"], h["security"], safe_alpn(h.get("alpn")),
+                    h["sni"], h["host"], h["security"], safe_alpn_func(h.get("alpn")),
                     h["fingerprint"], h["allowinsecure"], h["is_disabled"], h.get("path"),
                     h.get("random_user_agent", 0), h.get("use_sni_as_host", 0), h.get("priority", 0),
                     safe_json(h.get("http_headers")), safe_json(h.get("transport_settings")),
@@ -186,8 +192,9 @@ def migrate_hosts(marzban_conn, pasarguard_conn):
     pasarguard_conn.commit()
     return len(hosts)
 
+# Migration: Nodes
 def migrate_nodes(marzban_conn, pasarguard_conn):
-    """Migrate nodes from Marzban to Pasarguard."""
+    """Migrate nodes."""
     with marzban_conn.cursor() as cur:
         cur.execute("SELECT * FROM nodes")
         nodes = cur.fetchall()
@@ -214,6 +221,7 @@ def migrate_nodes(marzban_conn, pasarguard_conn):
     pasarguard_conn.commit()
     return len(nodes)
 
+# Migration: Users and Proxies
 def migrate_users_and_proxies(marzban_conn, pasarguard_conn):
     """Migrate users and their proxy settings."""
     with marzban_conn.cursor() as cur:
