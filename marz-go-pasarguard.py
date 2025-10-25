@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Marzban to Pasarguard Migration Menu
-Version: 1.0.4
+Version: 1.0.5
 A tool to change database ports and migrate data from Marzban to Pasarguard.
 """
 
@@ -51,16 +51,13 @@ def safe_json(value: Any) -> Optional[str]:
 # Helper: Load .env file
 def load_env_file(env_path: str) -> Dict[str, str]:
     """Load .env file and return key-value pairs."""
-    if not os.path.exists(env_path):
-        raise FileNotFoundError(f"Environment file {env_path} not found")
     load_dotenv(env_path)
     return dict(os.environ)
 
 # Helper: Parse SQLALCHEMY_DATABASE_URL
 def parse_sqlalchemy_url(url: str) -> Dict[str, Any]:
     """Parse SQLALCHEMY_DATABASE_URL to extract host, port, user, password, db."""
-    # Updated regex to handle special characters in password
-    pattern = r"mysql\+(asyncmy|pymysql)://([^:]+):([^@]*)@([^:]+):(\d+)/(.+)"
+    pattern = r"mysql\+(asyncmy|pymysql)://([^:]+):([^@]+)@([^:]+):(\d+)/(.+)"
     match = re.match(pattern, url)
     if not match:
         raise ValueError(f"Invalid SQLALCHEMY_DATABASE_URL: {url}")
@@ -75,19 +72,16 @@ def parse_sqlalchemy_url(url: str) -> Dict[str, Any]:
 # Helper: Get DB config from .env
 def get_db_config(env_path: str) -> Dict[str, Any]:
     """Get database config from .env file."""
-    try:
-        env = load_env_file(env_path)
-        sqlalchemy_url = env.get("SQLALCHEMY_DATABASE_URL")
-        if not sqlalchemy_url:
-            raise ValueError(f"SQLALCHEMY_DATABASE_URL not found in {env_path}")
-        config = parse_sqlalchemy_url(sqlalchemy_url)
-        config["charset"] = "utf8mb4"
-        config["cursorclass"] = pymysql.cursors.DictCursor
-        return config
-    except FileNotFoundError as e:
-        raise FileNotFoundError(f"Error: {str(e)}. Please ensure {env_path} exists.")
-    except ValueError as e:
-        raise ValueError(f"Error: {str(e)}. Please check SQLALCHEMY_DATABASE_URL format in {env_path}.")
+    if not os.path.exists(env_path):
+        raise FileNotFoundError(f"Environment file {env_path} not found")
+    env = load_env_file(env_path)
+    sqlalchemy_url = env.get("SQLALCHEMY_DATABASE_URL")
+    if not sqlalchemy_url:
+        raise ValueError(f"SQLALCHEMY_DATABASE_URL not found in {env_path}")
+    config = parse_sqlalchemy_url(sqlalchemy_url)
+    config["charset"] = "utf8mb4"
+    config["cursorclass"] = pymysql.cursors.DictCursor
+    return config
 
 # Helper: Read xray_config.json
 def read_xray_config() -> Dict[str, Any]:
@@ -107,7 +101,7 @@ def connect(cfg: Dict[str, Any]):
         conn = pymysql.connect(**cfg)
         return conn
     except Exception as e:
-        raise Exception(f"Connection failed: {str(e)}. Please check database credentials and ensure the database is running.")
+        raise Exception(f"Connection failed: {str(e)}")
 
 # Migration: Admins
 def migrate_admins(marzban_conn, pasarguard_conn):
@@ -122,13 +116,16 @@ def migrate_admins(marzban_conn, pasarguard_conn):
                 """
                 INSERT IGNORE INTO admins
                 (id, username, hashed_password, created_at, is_sudo,
-                 password_reset_at, telegram_id, discord_webhook, used_traffic, is_disabled)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,0)
+                 password_reset_at, telegram_id, discord_webhook, is_disabled,
+                 sub_template, sub_domain, profile_title, support_url, discord_id)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                 """,
                 (
                     a["id"], a["username"], a["hashed_password"],
                     a["created_at"], a["is_sudo"], a["password_reset_at"],
-                    a["telegram_id"], a["discord_webhook"], a.get("users_usage", 0)
+                    a["telegram_id"], a["discord_webhook"], a.get("is_disabled", 0),
+                    a.get("sub_template"), a.get("sub_domain"), a.get("profile_title"),
+                    a.get("support_url"), a.get("discord_id")
                 ),
             )
     pasarguard_conn.commit()
@@ -386,7 +383,7 @@ def display_menu():
     clear_screen()
     print(f"{CYAN}┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓")
     print(f"┃{YELLOW}          Marz ➜ Pasarguard              {CYAN}┃")
-    print(f"┃{YELLOW}              v1.0.4                     {CYAN}┃")
+    print(f"┃{YELLOW}              v1.0.5                     {CYAN}┃")
     print(f"┃{YELLOW}         Powered by: ASiS SK             {CYAN}┃")
     print(f"┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛{RESET}")
     print()
@@ -421,7 +418,7 @@ def change_db_port():
                 content = file.read()
             content = re.sub(r'DB_PORT=\d+', f'DB_PORT={port}', content)
             content = re.sub(
-                r'SQLALCHEMY_DATABASE_URL="mysql\+(asyncmy|pymysql)://[^:]+:[^@]*@127\.0\.0\.1:\d+/[^"]+"',
+                r'SQLALCHEMY_DATABASE_URL="mysql\+(asyncmy|pymysql)://[^:]+:[^@]+@127\.0\.0\.1:\d+/[^"]+"',
                 lambda match: match.group(0).replace(
                     re.search(r':\d+/', match.group(0)).group(0),
                     f':{port}/'
@@ -483,8 +480,6 @@ def migrate_marzban_to_pasarguard():
     clear_screen()
     print(f"{CYAN}=== Migrate Marzban to Pasarguard ==={RESET}")
 
-    marzban_conn = None
-    pasarguard_conn = None
     try:
         print("Loading credentials from .env files...")
         marzban_config = get_db_config(MARZBAN_ENV_PATH)
@@ -564,15 +559,18 @@ def migrate_marzban_to_pasarguard():
         time.sleep(0.5)
 
         print(f"{GREEN}MIGRATION COMPLETED SUCCESSFULLY! ✓{RESET}")
+        print("Please restart Pasarguard and Xray services:")
+        print("  docker restart pasarguard-pasarguard-1")
+        print("  docker restart xray")
 
     except Exception as e:
         print(f"{RED}Error during migration: {str(e)}{RESET}")
         input("Press Enter to return to the menu...")
         return False
     finally:
-        if marzban_conn:
+        if 'marzban_conn' in locals():
             marzban_conn.close()
-        if pasarguard_conn:
+        if 'pasarguard_conn' in locals():
             pasarguard_conn.close()
 
     input("Press Enter to return to the menu...")
