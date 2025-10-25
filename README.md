@@ -12,10 +12,9 @@ A Python-based automation tool to migrate data and manage database port configur
   - Hosts  
   - Nodes  
   - Users  
-  - `xray_config.json` → Pasarguard’s `core_configs` as `"ASiS SK"`  
+  - `xray_config.json` → Pasarguard’s 
 - 🧭 **Interactive Menu** — Simple text UI for choosing actions: change port, migrate, or exit.  
 - ⚙️ **Auto Dependency Check** — Installs required dependencies (`screen`, `python3`, `pymysql`, `python-dotenv`).  
-- 🎨 **Improved UI** — Stylish output with green checkmarks (✓) and smooth 0.5s delay animations per step.
 
 ---
 
