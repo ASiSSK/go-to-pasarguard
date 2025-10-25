@@ -8,7 +8,7 @@ if [ "$EUID" -ne 0 ]; then
 fi
 
 # Define repository URL
-REPO_URL="https://raw.githubusercontent.com/yourusername/marzban-to-pasarguard/main"
+REPO_URL="https://raw.githubusercontent.com/ASiSSK/go-to-pasarguard/main"
 
 # Download required files
 echo "Downloading required files..."
@@ -35,5 +35,10 @@ echo "Setting up asis-pg command..."
 mv marz-go-pasarguard.py /usr/local/bin/asis-pg
 mv migration_utils.py /usr/local/bin/migration_utils.py
 chmod +x /usr/local/bin/asis-pg
+
+# Clean up
+rm -f requirements.txt
+
+echo "Installation completed! Run the tool with: asis-pg"chmod +x /usr/local/bin/asis-pg
 
 echo "Installation completed! Run the tool with: asis-pg"
