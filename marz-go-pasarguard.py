@@ -11,9 +11,10 @@ import subprocess
 import sys
 import time
 from migration_utils import (
-    get_db_config, safe_alpn, safe_json, connect, migrate_admins,
-    ensure_default_group, ensure_default_core_config, migrate_inbounds_and_associate,
-    migrate_hosts, migrate_nodes, migrate_users_and_proxies
+    load_env_file, parse_sqlalchemy_url, get_db_config, safe_alpn, safe_json,
+    read_xray_config, connect, migrate_admins, ensure_default_group,
+    ensure_default_core_config, migrate_inbounds_and_associate, migrate_hosts,
+    migrate_nodes, migrate_users_and_proxies
 )
 
 # ANSI color codes
@@ -94,7 +95,7 @@ def display_menu():
     print("3. Exit")
     print()
 
-# Function to change database port (from your original working version)
+# Function to change database port
 def change_db_port():
     """Change the database port in .env and docker-compose.yml files."""
     clear_screen()
@@ -188,10 +189,10 @@ def migrate_marzban_to_pasarguard():
 
         print(f"{CYAN}=== MARZBAN DATABASE SETTINGS ==={RESET}")
         print(f"Using: host={marzban_config['host']}, port={marzban_config['port']}, "
-              f"user={marzban_config['user']}, db={marzban_config['database']}")
+              f"user={marzban_config['user']}, db={marzban_config['db']}")
         print(f"{CYAN}=== PASARGUARD DATABASE SETTINGS ==={RESET}")
         print(f"Using: host={pasarguard_config['host']}, port={pasarguard_config['port']}, "
-              f"user={pasarguard_config['user']}, db={pasarguard_config['database']}")
+              f"user={pasarguard_config['user']}, db={pasarguard_config['db']}")
 
         # Connect to databases
         marzban_conn = connect(marzban_config)
@@ -231,7 +232,7 @@ def migrate_marzban_to_pasarguard():
 
         # Migrate hosts
         print("Migrating hosts (with smart ALPN fix)...")
-        host_count = migrate_hosts(marzban_conn, pasarguard_conn)
+        host_count = migrate_hosts(marzban_conn, pasarguard_conn, safe_alpn)
         print(f"{GREEN}{host_count} host(s) migrated (ALPN fixed) ✓{RESET}")
         time.sleep(0.5)
 
@@ -248,7 +249,6 @@ def migrate_marzban_to_pasarguard():
         time.sleep(0.5)
 
         print(f"{GREEN}MIGRATION COMPLETED SUCCESSFULLY! ✓{RESET}")
-        print("Restart Pasarguard & Xray now.")
 
     except Exception as e:
         print(f"{RED}Error during migration: {str(e)}{RESET}")
