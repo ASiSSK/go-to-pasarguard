@@ -27,21 +27,6 @@ A Python-based automation tool to migrate data and manage database port configur
 
 ---
 
-## 🛠️ Quick Install (Single Command)
-Run this command to download and install the tool:
-```bash
-wget https://raw.githubusercontent.com/ASiSSK/go-to-pasarguard/main/asisskpg.sh && bash asisskpg.sh- 🎨 **Improved UI** — Stylish output with green checkmarks (✓) and smooth 0.5s delay animations per step.
-
----
-
-## 🧩 Requirements
-- Python **3.6+**
-- Ubuntu/Debian-based system (supports `apt-get`)
-- Installed **Marzban** and **Pasarguard** with valid `.env` configurations  
-- Root or `sudo` privileges (for dependency installation)
-
----
-
 ## 🛠️ Installation
 
 1. Clone the repository:
