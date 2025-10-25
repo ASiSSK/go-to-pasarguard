@@ -39,6 +39,4 @@ chmod +x /usr/local/bin/asis-pg
 # Clean up
 rm -f requirements.txt
 
-echo "Installation completed! Run the tool with: asis-pg"chmod +x /usr/local/bin/asis-pg
-
 echo "Installation completed! Run the tool with: asis-pg"
