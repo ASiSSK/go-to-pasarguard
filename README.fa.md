@@ -26,3 +26,8 @@
 برای نصب سریع دستور زیر را وارد کنید:
 ```bash
 wget https://raw.githubusercontent.com/ASiSSK/go-to-pasarguard/main/asisskpg.sh && bash asisskpg.sh
+```
+برای اجاری پنل مهاجرت دستور زیر را وارد کنید:
+```bash
+asis-pg
+```
