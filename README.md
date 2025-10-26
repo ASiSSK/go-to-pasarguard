@@ -34,3 +34,8 @@ A Python-based automation tool to migrate data and manage database port configur
 1. Clone the repository:
    ```bash
    wget https://raw.githubusercontent.com/ASiSSK/go-to-pasarguard/main/asisskpg.sh && bash asisskpg.sh
+   ```
+   2. Run script:
+      ```bash
+      asis-pg
+      ```
