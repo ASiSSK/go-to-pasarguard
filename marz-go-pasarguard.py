@@ -2,7 +2,7 @@ cat << 'EOF' > /usr/local/bin/asis-pg
 #!/usr/bin/env python3
 """
 Marzban to Pasarguard Migration Menu
-Version: 2.0.4 (Final SyntaxError Fix)
+Version: 2.0.5 (Final Global/Import Fix)
 A tool to change ports and migrate data from Marzban to Pasarguard,
 supporting MySQL/MariaDB and PostgreSQL/TimescaleDB.
 Power By: ASiSSK
@@ -16,6 +16,7 @@ import time
 import json
 import datetime
 import pymysql
+import importlib # Add importlib for safe reload
 
 # تلاش برای ایمپورت کردن psycopg2
 try:
@@ -156,6 +157,8 @@ def connect(cfg: Dict[str, Any]):
             }
             conn = pymysql.connect(**conn_args)
         elif db_type == "postgres":
+            # Check availability one more time right before connection
+            global PSYCOPG2_AVAILABLE
             if not PSYCOPG2_AVAILABLE:
                 raise ImportError("psycopg2 driver not found for PostgreSQL connection.")
             conn_args = {
@@ -592,6 +595,9 @@ def migrate_users_and_proxies(marzban_conn, pasarguard_conn, pasarguard_db_type)
 
 def check_dependencies():
     """Check and install required dependencies."""
+    # We declare globals here to allow modification after importlib.reload
+    global PSYCOPG2_AVAILABLE, psycopg2, psycopg2_extras
+    
     print(f"{CYAN}Checking dependencies...{RESET}")
     apt_deps = { "screen": "screen", "python3": "python3", "pip": "python3-pip" }
     missing_apt_deps = []
@@ -632,10 +638,8 @@ def check_dependencies():
             # اگر psycopg2 نصب شد، ماژول را دوباره بارگذاری کنید
             if "psycopg2-binary" in missing_pip_deps:
                 try:
-                    # FIX: Global declaration must be the first statement
-                    global PSYCOPG2_AVAILABLE, psycopg2, psycopg2_extras
-                    import psycopg2
-                    import psycopg2.extras
+                    psycopg2 = importlib.import_module('psycopg2')
+                    psycopg2_extras = importlib.import_module('psycopg2.extras')
                     PSYCOPG2_AVAILABLE = True
                 except ImportError:
                     print(f"{RED}Failed to import psycopg2 after installation.{RESET}")
@@ -656,7 +660,7 @@ def display_menu():
     print(f"{CYAN}┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓")
     print(f"┃{YELLOW}          Power By: ASiSSK               {CYAN}┃")
     print(f"┃{YELLOW}      Marz ➜ Pasarguard (Multi-DB)       {CYAN}┃")
-    print(f"┃{YELLOW}              v2.0.4 (Final Fix)         {CYAN}┃")
+    print(f"┃{YELLOW}              v2.0.5 (Final Fix)         {CYAN}┃")
     print(f"┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛{RESET}")
     print()
     print("Menu:")
