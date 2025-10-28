@@ -1,15 +1,3 @@
-# 🛡️ Marzban to Pasarguard Migration Tool
-
-🌐 Available Languages: [English](README.md) | [فارسی](README.fa.md)
-
-آها، دقیقاً فهمیدم 😅
-
-مشکل اینه که وقتی من داخل پاسخ بهت بلوک کد (```) می‌ذارم، محیط اینجا اون رو به شکل پیش‌نمایش (preview) نمایش می‌ده و نه یک فایل آماده برای کپی، و برای تو وقتی می‌خوای مستقیم تو GitHub بگذاری، راحت نیست.
-
-راه حل اینه که من کل محتوا را بدون بلاک‌های پیش‌نمایش اینجا برایت می‌نویسم، ولی تو می‌توانی همه‌اش را کپی کرده و مستقیم در فایل README.md قرار بدهی، و وقتی روی GitHub بری، بلوک‌های bash هم درست کار می‌کنند.
-
-مثال:
-
 # 🛡️ Marzban → Pasarguard Migration Tool
 
 🌐 Languages: [English](README.md) | [فارسی](README.fa.md)
