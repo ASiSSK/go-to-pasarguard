@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Marzban to Pasarguard Migration Tool
-Version: 2.0.0 (Complete with SSH Remote Migration)
+Version: 2.0.0 (Complete with SSH Remote Migration & Robust Dependency Check)
 Power By: ASiSSK
 """
 
@@ -12,11 +12,15 @@ import sys
 import time
 import json
 import datetime
-import pymysql
-# Ensure these are installed: pip3 install python-dotenv pymysql paramiko
-import paramiko
+# Conditional imports for PyPI packages that need to be checked/installed
+try:
+    import pymysql
+    import paramiko
+    from dotenv import dotenv_values
+except ImportError:
+    # Allow execution to reach check_dependencies function
+    pass 
 from typing import Dict, Any, Optional
-from dotenv import dotenv_values
 
 # ANSI color codes for better readability
 CYAN = "\033[36m"
@@ -33,7 +37,61 @@ DOCKER_COMPOSE_FILE_PATH = "/opt/pasarguard/docker-compose.yml"
 MARZBAN_ENV_PATH_DEFAULT = "/opt/marzban/.env"
 XRAY_CONFIG_PATH_DEFAULT = "/var/lib/marzban/xray_config.json"
 
-# --- Helper Functions for Data Transformation ---
+# --- Dependency Check and Installation (ENHANCED) ---
+
+def check_dependencies():
+    """Check and install required dependencies using sys.executable -m pip."""
+    print(f"{CYAN}Checking and installing required dependencies...{RESET}")
+    python_deps = ["pymysql", "python-dotenv", "paramiko"]
+    
+    # 1. Check for pip presence
+    try:
+        # Check if the correct pip is available for the running python interpreter
+        subprocess.run([sys.executable, "-m", "pip", "--version"], check=True, capture_output=True)
+    except Exception:
+        print(f"{RED}Error: pip (or pip for python3) is not correctly installed or configured.{RESET}")
+        print(f"{RED}Please install it first (e.g., sudo apt install python3-pip or sudo yum install python3-pip).{RESET}")
+        sys.exit(1)
+
+    all_installed = True
+    for pkg in python_deps:
+        try:
+            # Try to import first to see if it's already installed
+            __import__(pkg.replace('-', '_'))
+            # print(f"{GREEN}Python package {pkg} already installed ✓{RESET}")
+        except ImportError:
+            all_installed = False
+            print(f"Installing Python package: {pkg}...")
+            try:
+                # Use sys.executable -m pip for robust installation
+                result = subprocess.run(
+                    [sys.executable, "-m", "pip", "install", pkg],
+                    check=True,
+                    capture_output=True,
+                    text=True
+                )
+                print(f"{GREEN}Python package {pkg} installed successfully ✓{RESET}")
+            except subprocess.CalledProcessError as e:
+                print(f"{RED}Installation of {pkg} failed!{RESET}")
+                # Inform the user about the common fix for Paramiko's complex dependencies
+                if pkg == "paramiko":
+                    print(f"{YELLOW}توجه: نصب {pkg} اغلب به دلیل کمبود کتابخانه‌های سیستمی شکست می‌خورد.{RESET}")
+                    print(f"{YELLOW}اگر این خطا تکرار شد، لطفاً ابتدا بسته‌های توسعه‌دهنده زیر را نصب کنید (بسته به توزیع لینوکس شما):{RESET}")
+                    print(f"{YELLOW}  - برای Debian/Ubuntu: sudo apt update && sudo apt install python3-dev libssl-dev libffi-dev build-essential{RESET}")
+                    print(f"{YELLOW}  - برای CentOS/RHEL: sudo yum install python3-devel openssl-devel libffi-devel gcc{RESET}")
+                    print(f"{YELLOW}سپس، اسکریپت را دوباره اجرا کنید.{RESET}")
+                
+                print(f"{RED}جزئیات خطا: {e.stderr.strip()}{RESET}")
+                sys.exit(1)
+            except Exception as e:
+                print(f"{RED}An unknown error occurred during installation of {pkg}: {e}{RESET}")
+                sys.exit(1)
+    
+    if all_installed:
+        print(f"{GREEN}All required dependencies are installed ✓{RESET}")
+    time.sleep(0.5)
+
+# --- Helper Functions (Requires installed dependencies, so must be called after check_dependencies) ---
 
 def safe_alpn(value: Optional[str]) -> Optional[str]:
     """Convert 'none', '', 'null' or None to NULL for ALPN field in Pasarguard."""
@@ -69,6 +127,10 @@ def parse_sqlalchemy_url(url: str) -> Dict[str, Any]:
 
 def connect(cfg: Dict[str, Any]):
     """Connect to database."""
+    # Ensure pymysql is imported before calling this
+    if 'pymysql' not in sys.modules:
+        import pymysql
+    
     try:
         conn = pymysql.connect(**cfg)
         print(f"{GREEN}Connected to {cfg['db']}@{cfg['host']}:{cfg['port']} ✓{RESET}")
@@ -77,10 +139,14 @@ def connect(cfg: Dict[str, Any]):
     except Exception as e:
         raise Exception(f"Connection failed to {cfg['host']}:{cfg['port']}. Error: {str(e)}")
 
-# --- SSH Remote Connection Helpers (NEW) ---
+# --- SSH Remote Connection Helpers (Requires paramiko) ---
 
 def ssh_connect(host, port, user, password):
     """Establish an SSH connection to the remote Marzban server."""
+    # Ensure paramiko is imported
+    if 'paramiko' not in sys.modules:
+        import paramiko
+        
     print(f"{CYAN}Attempting SSH connection to {user}@{host}:{port}...{RESET}")
     client = paramiko.SSHClient()
     client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
@@ -93,8 +159,8 @@ def ssh_connect(host, port, user, password):
 
 def get_remote_file_content(ssh_client, remote_path):
     """Execute 'cat' command via SSH to read remote file content."""
+    # ... (Rest of the function remains the same) ...
     print(f"Reading remote file: {remote_path}")
-    # Use 'sudo cat' just in case if the user is not root but has sudo access
     stdin, stdout, stderr = ssh_client.exec_command(f"sudo cat {remote_path}")
     error = stderr.read().decode().strip()
     if "No such file or directory" in error or "Permission denied" in error:
@@ -108,6 +174,7 @@ def get_remote_file_content(ssh_client, remote_path):
 
 def get_remote_marzban_config(ssh_config):
     """Connect to remote Marzban and retrieve DB config and Xray config."""
+    # ... (Rest of the function remains the same) ...
     ssh_client = None
     try:
         ssh_client = ssh_connect(
@@ -143,10 +210,14 @@ def get_remote_marzban_config(ssh_config):
         if ssh_client:
             ssh_client.close()
 
-# --- Local Environment and Configuration ---
+# --- Local Environment and Configuration (Requires python-dotenv) ---
 
 def load_env_file(env_path: str) -> Dict[str, str]:
     """Load LOCAL .env file and return key-value pairs."""
+    # Ensure dotenv_values is available
+    if 'dotenv_values' not in sys.modules:
+        from dotenv import dotenv_values
+        
     if not os.path.exists(env_path):
         raise FileNotFoundError(f"Environment file {env_path} not found")
     if not os.access(env_path, os.R_OK):
@@ -157,6 +228,7 @@ def load_env_file(env_path: str) -> Dict[str, str]:
         raise ValueError(f"SQLALCHEMY_DATABASE_URL not found in {env_path}")
     return env
 
+# ... (All other helper and migration functions remain the same) ...
 def get_local_db_config(env_path: str, name: str) -> Dict[str, Any]:
     """Get database config from LOCAL .env file."""
     try:
@@ -185,12 +257,9 @@ def read_local_xray_config() -> Dict[str, Any]:
     except Exception as e:
         raise Exception(f"Error reading xray_config.json: {str(e)}")
 
-# --- Migration Functions (FULL IMPLEMENTATION) ---
 
-# Migration: Admins
 def migrate_admins(marzban_conn, pasarguard_conn):
     """Migrate admins from Marzban to Pasarguard."""
-    # ... (Full implementation of migrate_admins) ...
     with marzban_conn.cursor() as cur:
         cur.execute("SELECT * FROM admins")
         admins = cur.fetchall()
@@ -211,7 +280,7 @@ def migrate_admins(marzban_conn, pasarguard_conn):
                     is_disabled BOOLEAN DEFAULT 0
                 )
             """)
-            print(f"{GREEN}Created admins table in Pasarguard ✓{RESET}")
+            # print(f"{GREEN}Created admins table in Pasarguard ✓{RESET}")
             time.sleep(0.5)
 
         for a in admins:
@@ -239,28 +308,26 @@ def migrate_admins(marzban_conn, pasarguard_conn):
     pasarguard_conn.commit()
     return len(admins)
 
-# Migration: Default Group
+
 def ensure_default_group(pasarguard_conn):
     """Ensure default group exists and create table if necessary."""
-    # ... (Full implementation of ensure_default_group) ...
     with pasarguard_conn.cursor() as cur:
         cur.execute("SHOW TABLES LIKE 'groups'")
         if cur.fetchone() is None:
             cur.execute("CREATE TABLE groups (id INT PRIMARY KEY, name VARCHAR(255) NOT NULL UNIQUE, is_disabled BOOLEAN DEFAULT 0)")
-            print(f"{GREEN}Created groups table in Pasarguard ✓{RESET}")
+            # print(f"{GREEN}Created groups table in Pasarguard ✓{RESET}")
             time.sleep(0.5)
         
         cur.execute("SELECT COUNT(*) AS cnt FROM groups WHERE id = 1")
         if cur.fetchone()["cnt"] == 0:
             cur.execute("INSERT INTO groups (id, name, is_disabled) VALUES (1, 'DefaultGroup', 0)")
-            print(f"{GREEN}Created default group (ID 1) in Pasarguard ✓{RESET}")
+            # print(f"{GREEN}Created default group (ID 1) in Pasarguard ✓{RESET}")
             time.sleep(0.5)
     pasarguard_conn.commit()
 
-# Migration: Default Core Config
+
 def ensure_default_core_config(pasarguard_conn):
     """Ensure default core config exists and create table if necessary."""
-    # ... (Full implementation of ensure_default_core_config) ...
     with pasarguard_conn.cursor() as cur:
         cur.execute("SHOW TABLES LIKE 'core_configs'")
         if cur.fetchone() is None:
@@ -274,7 +341,7 @@ def ensure_default_core_config(pasarguard_conn):
                     fallbacks_inbound_tags TEXT
                 )
             """)
-            print(f"{GREEN}Created core_configs table in Pasarguard ✓{RESET}")
+            # print(f"{GREEN}Created core_configs table in Pasarguard ✓{RESET}")
             time.sleep(0.5)
         
         cur.execute("SELECT COUNT(*) AS cnt FROM core_configs WHERE id = 1")
@@ -291,14 +358,12 @@ def ensure_default_core_config(pasarguard_conn):
                 """,
                 safe_json(cfg),
             )
-            print(f"{GREEN}Created placeholder default core config (ID 1) in Pasarguard ✓{RESET}")
+            # print(f"{GREEN}Created placeholder default core config (ID 1) in Pasarguard ✓{RESET}")
             time.sleep(0.5)
     pasarguard_conn.commit()
 
-# Migration: Xray Config
 def migrate_xray_config(pasarguard_conn, xray_config):
     """Migrate xray_config.json to core_configs (ID 1) and backup existing config."""
-    # ... (Full implementation of migrate_xray_config) ...
     with pasarguard_conn.cursor() as cur:
         cur.execute("SELECT MAX(id) AS max_id FROM core_configs")
         max_id = cur.fetchone()["max_id"]
@@ -321,7 +386,7 @@ def migrate_xray_config(pasarguard_conn, xray_config):
                     existing["fallbacks_inbound_tags"],
                 ),
             )
-            print(f"{GREEN}Backup created as ID {backup_id} ✓{RESET}")
+            # print(f"{GREEN}Backup created as ID {backup_id} ✓{RESET}")
             time.sleep(0.5)
 
         cur.execute(
@@ -339,10 +404,8 @@ def migrate_xray_config(pasarguard_conn, xray_config):
     pasarguard_conn.commit()
     return 1
 
-# Migration: Inbounds
 def migrate_inbounds_and_associate(marzban_conn, pasarguard_conn):
     """Migrate inbounds and associate with default group (ID 1)."""
-    # ... (Full implementation of migrate_inbounds_and_associate) ...
     with marzban_conn.cursor() as cur:
         cur.execute("SELECT * FROM inbounds")
         inbounds = cur.fetchall()
@@ -351,7 +414,7 @@ def migrate_inbounds_and_associate(marzban_conn, pasarguard_conn):
         cur.execute("SHOW TABLES LIKE 'inbounds'")
         if cur.fetchone() is None:
             cur.execute("CREATE TABLE inbounds (id INT PRIMARY KEY, tag VARCHAR(255) NOT NULL UNIQUE)")
-            print(f"{GREEN}Created inbounds table in Pasarguard ✓{RESET}")
+            # print(f"{GREEN}Created inbounds table in Pasarguard ✓{RESET}")
             time.sleep(0.5)
 
         cur.execute("SHOW TABLES LIKE 'inbounds_groups_association'")
@@ -363,7 +426,7 @@ def migrate_inbounds_and_associate(marzban_conn, pasarguard_conn):
                     FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE
                 )
             """)
-            print(f"{GREEN}Created inbounds_groups_association table in Pasarguard ✓{RESET}")
+            # print(f"{GREEN}Created inbounds_groups_association table in Pasarguard ✓{RESET}")
             time.sleep(0.5)
 
         for i in inbounds:
@@ -382,10 +445,8 @@ def migrate_inbounds_and_associate(marzban_conn, pasarguard_conn):
     pasarguard_conn.commit()
     return len(inbounds)
 
-# Migration: Hosts
 def migrate_hosts(marzban_conn, pasarguard_conn):
     """Migrate hosts with ALPN fix and default values for new Pasarguard fields."""
-    # ... (Full implementation of migrate_hosts) ...
     with marzban_conn.cursor() as cur:
         cur.execute("SELECT * FROM hosts")
         hosts = cur.fetchall()
@@ -403,7 +464,7 @@ def migrate_hosts(marzban_conn, pasarguard_conn):
                     fragment_settings JSON, status VARCHAR(50)
                 )
             """)
-            print(f"{GREEN}Created hosts table in Pasarguard ✓{RESET}")
+            # print(f"{GREEN}Created hosts table in Pasarguard ✓{RESET}")
             time.sleep(0.5)
 
         for h in hosts:
@@ -438,10 +499,8 @@ def migrate_hosts(marzban_conn, pasarguard_conn):
     pasarguard_conn.commit()
     return len(hosts)
 
-# Migration: Nodes
 def migrate_nodes(marzban_conn, pasarguard_conn):
     """Migrate nodes and link them to default core config (ID 1)."""
-    # ... (Full implementation of migrate_nodes) ...
     with marzban_conn.cursor() as cur:
         cur.execute("SELECT * FROM nodes")
         nodes = cur.fetchall()
@@ -459,7 +518,7 @@ def migrate_nodes(marzban_conn, pasarguard_conn):
                     FOREIGN KEY (core_config_id) REFERENCES core_configs(id)
                 )
             """)
-            print(f"{GREEN}Created nodes table in Pasarguard ✓{RESET}")
+            # print(f"{GREEN}Created nodes table in Pasarguard ✓{RESET}")
             time.sleep(0.5)
 
         for n in nodes:
@@ -490,10 +549,8 @@ def migrate_nodes(marzban_conn, pasarguard_conn):
     pasarguard_conn.commit()
     return len(nodes)
 
-# Migration: Users and Proxies
 def migrate_users_and_proxies(marzban_conn, pasarguard_conn):
     """Migrate users, their proxies, and merge proxy settings into JSON column."""
-    # ... (Full implementation of migrate_users_and_proxies) ...
     with marzban_conn.cursor() as cur:
         cur.execute("SELECT * FROM users")
         users = cur.fetchall()
@@ -510,7 +567,7 @@ def migrate_users_and_proxies(marzban_conn, pasarguard_conn):
                     proxy_settings JSON, groups TEXT
                 )
             """)
-            print(f"{GREEN}Created users table in Pasarguard ✓{RESET}")
+            # print(f"{GREEN}Created users table in Pasarguard ✓{RESET}")
             time.sleep(0.5)
 
         total = 0
@@ -621,23 +678,6 @@ def run_migration_steps(marzban_conn, pasarguard_conn, xray_config):
     print("Please restart Pasarguard and Xray services.")
     print(f"{CYAN}============================================================{RESET}")
 
-def check_dependencies():
-    """Check and install required dependencies."""
-    print(f"{CYAN}Checking dependencies...{RESET}")
-    python_deps = ["pymysql", "python-dotenv", "paramiko"]
-    for pkg in python_deps:
-        try:
-            __import__(pkg.replace('-', '_'))
-        except ImportError:
-            print(f"Installing Python package: {pkg}")
-            try:
-                subprocess.run(f"pip3 install {pkg}", shell=True, check=True, stdout=subprocess.DEVNULL)
-                print(f"{GREEN}Python package {pkg} installed ✓{RESET}")
-            except subprocess.CalledProcessError as e:
-                print(f"{RED}Error installing {pkg}. Please install manually: pip3 install {pkg}. Error: {e}{RESET}")
-                sys.exit(1)
-    print(f"{GREEN}All dependencies are installed/checked ✓{RESET}")
-    time.sleep(0.5)
 
 def clear_screen():
     """Clear the terminal screen."""
@@ -648,8 +688,8 @@ def display_menu():
     clear_screen()
     print(f"{CYAN}┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓")
     print(f"┃{YELLOW}          Power By: ASiSSK               {CYAN}┃")
-    print(f"┃{YELLOW}          Marz ➜ Pasarguard              {CYAN}┃")
-    print(f"┃{YELLOW}              v2.0.0 (SSH)               {CYAN}┃")
+    print(f"┃{YELLOW}          Marz ➜ Pasarguard              {CYAY}┃")
+    print(f"┃{YELLOW}        v2.0.0 (Robust SSH)              {CYAN}┃")
     print(f"┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛{RESET}")
     print()
     print("Menu:")
@@ -758,7 +798,7 @@ def migrate_marzban_remotely():
 
     marzban_conn, pasarguard_conn = None, None
     try:
-        # 2. Get Marzban config remotely
+        # 2. Get Marzban config remotely (Includes SSH connection and file reading)
         marzban_config, xray_config = get_remote_marzban_config(ssh_config)
         
         # 3. Get Pasarguard config locally
@@ -837,6 +877,7 @@ def main():
         print(f"{RED}Error: This script must be run as root (using sudo).{RESET}")
         sys.exit(1)
         
+    # Enhanced dependency check runs first
     check_dependencies()
 
     while True:
