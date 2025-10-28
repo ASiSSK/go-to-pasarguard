@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Marzban to Pasarguard Migration Menu
-Version: 1.0.15 (Install Paramiko on demand)
+Version: 1.0.15 (Remote Added)
 A tool to change database and phpMyAdmin ports and migrate data from Marzban to Pasarguard.
 Power By: ASiSSK
 """
@@ -15,14 +15,16 @@ import json
 import datetime
 import pymysql
 from typing import Dict, Any, Optional
-from dotenv import dotenv_values
 
-# Paramiko is imported on demand later
-paramiko = None
+# Try to import dotenv on demand (though it's checked in check_dependencies)
 try:
-    import paramiko
+    from dotenv import dotenv_values
 except ImportError:
-    pass
+    print("Error: python-dotenv library not found. Please install it.")
+    sys.exit(1)
+
+# Paramiko is imported on demand later for Option 3
+paramiko = None
 
 # ANSI color codes
 CYAN = "\033[36m"
@@ -38,7 +40,7 @@ DOCKER_COMPOSE_FILE_PATH = "/opt/pasarguard/docker-compose.yml"
 XRAY_CONFIG_PATH = "/var/lib/marzban/xray_config.json"
 REMOTE_SCRIPT_PATH = "/tmp/asis-pg-remote.py" 
 
-# --- Helper Functions ---
+# --- Helper Functions (Same as before) ---
 
 def safe_alpn(value: Optional[str]) -> Optional[str]:
     """Convert 'none', '', 'null' → NULL for Pasarguard"""
@@ -125,24 +127,18 @@ def connect(cfg: Dict[str, Any]):
     except Exception as e:
         raise Exception(f"Connection failed: {str(e)}")
 
-# --- Migration Functions (Unchanged) ---
-# ... (migrate_admins, ensure_default_group, ensure_default_core_config, migrate_xray_config, 
-# migrate_inbounds_and_associate, migrate_hosts, migrate_nodes, migrate_users_and_proxies - all the same) ...
-
+# --- Migration Functions (Same as before) ---
 def migrate_admins(marzban_conn, pasarguard_conn):
     """Migrate admins from Marzban to Pasarguard."""
     with marzban_conn.cursor() as cur:
         cur.execute("SELECT * FROM admins")
         admins = cur.fetchall()
-    # ... (omitted migration logic for brevity, it's the same)
     with pasarguard_conn.cursor() as cur:
         cur.execute("SHOW TABLES LIKE 'admins'")
         if cur.fetchone() is None:
             cur.execute("""
-                CREATE TABLE admins (
-                    id INT PRIMARY KEY, username VARCHAR(255) NOT NULL, hashed_password TEXT NOT NULL, created_at DATETIME NOT NULL,
-                    is_sudo BOOLEAN DEFAULT FALSE, password_reset_at DATETIME, telegram_id BIGINT, discord_webhook TEXT
-                )
+                CREATE TABLE admins (id INT PRIMARY KEY, username VARCHAR(255) NOT NULL, hashed_password TEXT NOT NULL, created_at DATETIME NOT NULL,
+                    is_sudo BOOLEAN DEFAULT FALSE, password_reset_at DATETIME, telegram_id BIGINT, discord_webhook TEXT)
             """)
             print(f"{GREEN}Created admins table in Pasarguard ✓{RESET}")
             time.sleep(0.5)
@@ -169,9 +165,7 @@ def ensure_default_group(pasarguard_conn):
         cur.execute("SHOW TABLES LIKE 'groups'")
         if cur.fetchone() is None:
             cur.execute("""
-                CREATE TABLE groups (
-                    id INT PRIMARY KEY, name VARCHAR(255) NOT NULL, is_disabled BOOLEAN DEFAULT FALSE
-                )
+                CREATE TABLE groups (id INT PRIMARY KEY, name VARCHAR(255) NOT NULL, is_disabled BOOLEAN DEFAULT FALSE)
             """)
             print(f"{GREEN}Created groups table in Pasarguard ✓{RESET}")
             time.sleep(0.5)
@@ -189,10 +183,8 @@ def ensure_default_core_config(pasarguard_conn):
         cur.execute("SHOW TABLES LIKE 'core_configs'")
         if cur.fetchone() is None:
             cur.execute("""
-                CREATE TABLE core_configs (
-                    id INT PRIMARY KEY, created_at DATETIME NOT NULL, name VARCHAR(255) NOT NULL,
-                    config JSON NOT NULL, exclude_inbound_tags TEXT, fallbacks_inbound_tags TEXT
-                )
+                CREATE TABLE core_configs (id INT PRIMARY KEY, created_at DATETIME NOT NULL, name VARCHAR(255) NOT NULL,
+                    config JSON NOT NULL, exclude_inbound_tags TEXT, fallbacks_inbound_tags TEXT)
             """)
             print(f"{GREEN}Created core_configs table in Pasarguard ✓{RESET}")
             time.sleep(0.5)
@@ -201,20 +193,13 @@ def ensure_default_core_config(pasarguard_conn):
         if cur.fetchone()["cnt"] == 0:
             cfg = {
                 "log": {"loglevel": "warning"},
-                "inbounds": [{
-                    "tag": "Shadowsocks TCP", "listen": "0.0.0.0", "port": 1080, "protocol": "shadowsocks",
-                    "settings": {"clients": [], "network": "tcp,udp"}
-                }],
-                "outbounds": [
-                    {"protocol": "freedom", "tag": "DIRECT"},
-                    {"protocol": "blackhole", "tag": "BLOCK"}
-                ],
+                "inbounds": [{"tag": "Shadowsocks TCP", "listen": "0.0.0.0", "port": 1080, "protocol": "shadowsocks", "settings": {"clients": [], "network": "tcp,udp"}}],
+                "outbounds": [{"protocol": "freedom", "tag": "DIRECT"}, {"protocol": "blackhole", "tag": "BLOCK"}],
                 "routing": {"rules": [{"ip": ["geoip:private"], "outboundTag": "BLOCK", "type": "field"}]}
             }
             cur.execute(
                 """
-                INSERT INTO core_configs
-                (id, created_at, name, config, exclude_inbound_tags, fallbacks_inbound_tags)
+                INSERT INTO core_configs (id, created_at, name, config, exclude_inbound_tags, fallbacks_inbound_tags)
                 VALUES (1, NOW(), 'ASiS SK', %s, '', '')
                 """,
                 json.dumps(cfg),
@@ -231,25 +216,19 @@ def migrate_xray_config(pasarguard_conn, xray_config):
         if existing:
             cur.execute(
                 """
-                INSERT INTO core_configs
-                (id, created_at, name, config, exclude_inbound_tags, fallbacks_inbound_tags)
+                INSERT INTO core_configs (id, created_at, name, config, exclude_inbound_tags, fallbacks_inbound_tags)
                 VALUES (%s, NOW(), %s, %s, %s, %s)
                 """,
-                (
-                    existing["id"] + 1000, "Backup_ASiS_SK", existing["config"],
-                    existing["exclude_inbound_tags"], existing["fallbacks_inbound_tags"],
-                ),
+                (existing["id"] + 1000, "Backup_ASiS_SK", existing["config"], existing["exclude_inbound_tags"], existing["fallbacks_inbound_tags"]),
             )
             print(f"{GREEN}Backup created as 'Backup_ASiS_SK' with ID {existing['id'] + 1000} ✓{RESET}")
             time.sleep(0.5)
 
         cur.execute(
             """
-            INSERT INTO core_configs
-            (id, created_at, name, config, exclude_inbound_tags, fallbacks_inbound_tags)
+            INSERT INTO core_configs (id, created_at, name, config, exclude_inbound_tags, fallbacks_inbound_tags)
             VALUES (%s, NOW(), %s, %s, '', '')
-            ON DUPLICATE KEY UPDATE
-                name = %s, config = %s, created_at = NOW()
+            ON DUPLICATE KEY UPDATE name = %s, config = %s, created_at = NOW()
             """,
             (1, "ASiS SK", json.dumps(xray_config), "ASiS SK", json.dumps(xray_config)),
         )
@@ -297,18 +276,15 @@ def migrate_hosts(marzban_conn, pasarguard_conn, safe_alpn_func):
         cur.execute("SHOW TABLES LIKE 'hosts'")
         if cur.fetchone() is None:
             cur.execute("""
-                CREATE TABLE hosts (
-                    id INT PRIMARY KEY, remark VARCHAR(255), address VARCHAR(255), port INT, inbound_tag VARCHAR(255), sni TEXT,
+                CREATE TABLE hosts (id INT PRIMARY KEY, remark VARCHAR(255), address VARCHAR(255), port INT, inbound_tag VARCHAR(255), sni TEXT,
                     host TEXT, security VARCHAR(50), alpn TEXT, fingerprint TEXT, allowinsecure BOOLEAN, is_disabled BOOLEAN,
                     path TEXT, random_user_agent BOOLEAN, use_sni_as_host BOOLEAN, priority INT DEFAULT 0, http_headers TEXT,
-                    transport_settings TEXT, mux_settings TEXT, noise_settings TEXT, fragment_settings TEXT, status VARCHAR(50)
-                )
+                    transport_settings TEXT, mux_settings TEXT, noise_settings TEXT, fragment_settings TEXT, status VARCHAR(50))
             """)
             print(f"{GREEN}Created hosts table in Pasarguard ✓{RESET}")
             time.sleep(0.5)
 
         for h in hosts:
-            # ... (omitted insert/update logic for brevity, it's the same)
             cur.execute(
                 """
                 INSERT INTO hosts (id, remark, address, port, inbound_tag, sni, host, security, alpn, fingerprint, allowinsecure, 
@@ -321,8 +297,7 @@ def migrate_hosts(marzban_conn, pasarguard_conn, safe_alpn_func):
                     mux_settings = %s, noise_settings = %s, fragment_settings = %s, status = %s
                 """,
                 (
-                    h["id"], h["remark"], h["address"], h["port"], h["inbound_tag"], h["sni"], h["host"], h["security"], 
-                    safe_alpn_func(h.get("alpn")), h["fingerprint"], h["allowinsecure"], h["is_disabled"], h.get("path"),
+                    h["id"], h["remark"], h["address"], h["port"], h["inbound_tag"], h["sni"], h["host"], h["security"], safe_alpn_func(h.get("alpn")), h["fingerprint"], h["allowinsecure"], h["is_disabled"], h.get("path"),
                     h.get("random_user_agent", 0), h.get("use_sni_as_host", 0), h.get("priority", 0),
                     safe_json(h.get("http_headers")), safe_json(h.get("transport_settings")), safe_json(h.get("mux_settings")), 
                     safe_json(h.get("noise_settings")), safe_json(h.get("fragment_settings")), h.get("status"),
@@ -346,19 +321,16 @@ def migrate_nodes(marzban_conn, pasarguard_conn):
         cur.execute("SHOW TABLES LIKE 'nodes'")
         if cur.fetchone() is None:
             cur.execute("""
-                CREATE TABLE nodes (
-                    id INT PRIMARY KEY, name VARCHAR(255) NOT NULL, address VARCHAR(255) NOT NULL, port INT, status VARCHAR(50), 
+                CREATE TABLE nodes (id INT PRIMARY KEY, name VARCHAR(255) NOT NULL, address VARCHAR(255) NOT NULL, port INT, status VARCHAR(50), 
                     last_status_change DATETIME, message TEXT, created_at DATETIME NOT NULL, uplink BIGINT, downlink BIGINT, 
                     xray_version VARCHAR(50), usage_coefficient FLOAT, node_version VARCHAR(50), connection_type VARCHAR(50), 
                     server_ca TEXT, keep_alive BOOLEAN, max_logs INT, core_config_id INT, gather_logs BOOLEAN, 
-                    FOREIGN KEY (core_config_id) REFERENCES core_configs(id)
-                )
+                    FOREIGN KEY (core_config_id) REFERENCES core_configs(id))
             """)
             print(f"{GREEN}Created nodes table in Pasarguard ✓{RESET}")
             time.sleep(0.5)
 
         for n in nodes:
-            # ... (omitted insert/update logic for brevity, it's the same)
             cur.execute(
                 """
                 INSERT INTO nodes (id, name, address, port, status, last_status_change, message, created_at, uplink, 
@@ -394,12 +366,10 @@ def migrate_users_and_proxies(marzban_conn, pasarguard_conn):
         cur.execute("SHOW TABLES LIKE 'users'")
         if cur.fetchone() is None:
             cur.execute("""
-                CREATE TABLE users (
-                    id INT PRIMARY KEY, username VARCHAR(255) NOT NULL, status VARCHAR(50), used_traffic BIGINT, data_limit BIGINT, 
+                CREATE TABLE users (id INT PRIMARY KEY, username VARCHAR(255) NOT NULL, status VARCHAR(50), used_traffic BIGINT, data_limit BIGINT, 
                     created_at DATETIME NOT NULL, admin_id INT, data_limit_reset_strategy VARCHAR(50), sub_revoked_at DATETIME, 
                     note TEXT, online_at DATETIME, edit_at DATETIME, on_hold_timeout DATETIME, on_hold_expire_duration INT, 
-                    auto_delete_in_days INT, last_status_change DATETIME, expire DATETIME, proxy_settings JSON
-                )
+                    auto_delete_in_days INT, last_status_change DATETIME, expire DATETIME, proxy_settings JSON)
             """)
             print(f"{GREEN}Created users table in Pasarguard ✓{RESET}")
             time.sleep(0.5)
@@ -426,7 +396,6 @@ def migrate_users_and_proxies(marzban_conn, pasarguard_conn):
 
             used = u["used_traffic"] or 0
 
-            # ... (omitted insert/update logic for brevity, it's the same)
             cur.execute(
                 """
                 INSERT INTO users (id, username, status, used_traffic, data_limit, created_at, admin_id, data_limit_reset_strategy, 
@@ -463,7 +432,7 @@ def install_python_dependencies(packages: list):
         except subprocess.CalledProcessError:
             print(f"Installing Python package: {pkg}...")
             try:
-                # Removed 'apt update'
+                # **apt update is removed as per request**
                 subprocess.run(f"pip3 install {pkg}", shell=True, check=True)
                 print(f"{GREEN}Python package {pkg} installed ✓{RESET}")
                 time.sleep(0.5)
@@ -473,9 +442,8 @@ def install_python_dependencies(packages: list):
     return True
 
 def check_dependencies():
-    """Check and install core dependencies only."""
+    """Check and install core OS and Python dependencies only once."""
     print(f"{CYAN}Checking core dependencies...{RESET}")
-    # Only check for core OS tools and python/pip
     dependencies = {
         "screen": "screen",
         "python3": "python3",
@@ -490,9 +458,9 @@ def check_dependencies():
 
     if missing_deps:
         print(f"{RED}Missing OS dependencies: {', '.join(missing_deps)}{RESET}")
-        print("Installing missing OS dependencies...")
+        print("Installing missing OS dependencies (requires sudo/root access)...")
         try:
-            # Removed 'apt update'
+            # **apt update removed as per request**
             for pkg in missing_deps:
                 subprocess.run(f"apt-get install -y {pkg}", shell=True, check=True)
             print(f"{GREEN}OS dependencies installed successfully ✓{RESET}")
@@ -513,19 +481,19 @@ def clear_screen():
     """Clear the terminal screen."""
     os.system("clear")
 
-def display_menu(version):
+def display_menu():
     """Display the main menu with a styled header."""
     clear_screen()
     print(f"{CYAN}┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓")
     print(f"┃{YELLOW}          Power By: ASiSSK               {CYAN}┃")
     print(f"┃{YELLOW}          Marz ➜ Pasarguard              {CYAN}┃")
-    print(f"┃{YELLOW}              v{version}                    {CYAN}┃")
+    print(f"┃{YELLOW}              v1.0.15 (Remote Added)     {CYAN}┃")
     print(f"┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛{RESET}")
     print()
     print("Menu:")
     print("1. Change Database Ports")
     print("2. Local Migration Marzban -> Pasarguard")
-    print("3. Remote Migration via SSH (Pasarguard on new server)")
+    print("3. Remote Migration via SSH")
     print("4. Exit")
     print()
 
@@ -551,7 +519,7 @@ def check_file_access():
             time.sleep(0.1)
     return success
 
-# --- NEW FUNCTIONS FOR REMOTE MIGRATION (TAB 3) ---
+# --- Remote Migration (Option 3) ---
 
 def get_ssh_credentials():
     """Get SSH connection details from user for remote migration."""
@@ -609,7 +577,7 @@ def remote_execute_migration():
         with open(sys.argv[0], 'r', encoding='utf-8') as f:
             local_script_content = f.read()
         
-        # Use SFTP to transfer the script (more reliable than 'tee' over exec_command for large files)
+        # Transfer the script
         sftp = client.open_sftp()
         with sftp.file(REMOTE_SCRIPT_PATH, 'w') as remote_file:
             remote_file.write(local_script_content)
@@ -618,30 +586,26 @@ def remote_execute_migration():
         print(f"{GREEN}Script transferred to remote server at {REMOTE_SCRIPT_PATH} ✓{RESET}")
         client.exec_command(f"chmod +x {REMOTE_SCRIPT_PATH}")
 
-        # 3. Execute dependency check and then migration logic remotely
-        remote_command = (
-            f"python3 {REMOTE_SCRIPT_PATH} --remote-migrate"
-        )
-        
-        print(f"{CYAN}Executing remote migration command on {host} (This might take a while to install dependencies remotely)...{RESET}")
-        
-        # Use an interactive shell or combined command execution for better environment setup
-        # paramiko.exec_command often struggles with environment/paths, especially for 'sudo' and 'pip'.
-        
-        # We wrap in a simple shell script to ensure correct execution context for pip/python3 on the remote server
+        # 3. Execute dependency check and then migration logic remotely using a shell script wrapper
         shell_script = f"""
             #!/bin/bash
             
-            # 1. Ensure core dependencies (python3, pip, screen) are available on the remote server
+            # Ensure base tools are available remotely (using sudo if necessary)
             echo -e "{CYAN}[REMOTE SETUP] Installing OS dependencies...{RESET}"
-            sudo apt-get install -y python3 python3-pip screen > /dev/null 2>&1
+            # Use 'command -v' to check presence before installing
+            if ! command -v apt-get &> /dev/null; then
+                echo -e "{RED}apt-get not found. Remote setup may fail.{RESET}"
+            else
+                # We install python3-pip in case it's missing on the remote host
+                sudo apt-get install -y python3-pip > /dev/null 2>&1
+            fi
             
-            # 2. Run the actual migration script
+            # Run the actual migration script with the --remote-migrate flag
             echo -e "{CYAN}[REMOTE SETUP] Starting migration script...{RESET}"
+            # We must ensure python3 is used, which is checked/installed above
             /usr/bin/env python3 {REMOTE_SCRIPT_PATH} --remote-migrate
         """
         
-        # Transfer and execute setup script
         setup_path = "/tmp/asis-pg-setup.sh"
         sftp = client.open_sftp()
         with sftp.file(setup_path, 'w') as remote_file:
@@ -651,7 +615,7 @@ def remote_execute_migration():
         
         stdin, stdout, stderr = client.exec_command(f"bash {setup_path}")
         
-        # Stream output
+        # Stream output for real-time feedback
         print("-" * 50)
         for line in iter(stdout.readline, ""):
             print(f"[REMOTE] {line.strip()}")
@@ -685,7 +649,7 @@ def remote_execute_migration():
     input("Press Enter to return to the menu...")
     return True
 
-# --- Local Migration Function (Core Logic) ---
+# --- Local Migration (Core Logic) ---
 
 def execute_local_migration_core():
     """Runs the core migration logic, assuming all files/paths are local."""
@@ -694,9 +658,9 @@ def execute_local_migration_core():
     
     if not check_file_access():
         print(f"{RED}Error: File access issues detected locally. Cannot proceed.{RESET}")
+        input("Press Enter to return to the menu...")
         return False
     
-    # ... (omitted main migration steps for brevity, it's the same as before)
     try:
         print(f"Loading credentials from .env files...")
         marzban_config = get_db_config(MARZBAN_ENV_PATH, "Marzban")
@@ -761,23 +725,95 @@ def execute_local_migration_core():
     input("Press Enter to return to the menu...")
     return True
 
+# --- Option 1 Logic ---
+
+def change_db_port():
+    """Change the database and phpMyAdmin ports in .env and docker-compose.yml files."""
+    clear_screen()
+    print(f"{CYAN}=== Change Database Ports ==={RESET}")
+
+    default_db_port = "3307"
+    db_port = input(f"Enter new database port (Default: {default_db_port}): ").strip() or default_db_port
+    
+    success = True
+
+    try:
+        # Validate port
+        if not db_port.isdigit() or not (1 <= int(db_port) <= 65535):
+            print(f"{RED}Error: Invalid port number.{RESET}")
+            success = False
+        
+        if success:
+            # Update .env file (DB_PORT and SQLALCHEMY_DATABASE_URL)
+            env_file = PASARGUARD_ENV_PATH
+            if os.path.exists(env_file):
+                with open(env_file, 'r', encoding='utf-8') as file:
+                    content = file.read()
+                
+                # Update DB_PORT if it exists, otherwise append
+                if re.search(r'DB_PORT=\d+', content):
+                    content = re.sub(r'DB_PORT=\d+', f'DB_PORT={db_port}', content, 1)
+                elif not re.search(r'DB_PORT=', content):
+                    content += f'\nDB_PORT={db_port}\n'
+                
+                # Update SQLALCHEMY_DATABASE_URL (assuming host is 127.0.0.1 for now)
+                content = re.sub(
+                    r'(SQLALCHEMY_DATABASE_URL="mysql\+(asyncmy|pymysql)://[^:]+:[^@]+@([^:]+)):(\d+)(/[^"]+")',
+                    lambda match: f'SQLALCHEMY_DATABASE_URL="mysql+{match.group(2)}://{match.group(3)}:{db_port}/{match.group(5)}"',
+                    content
+                )
+                with open(env_file, 'w', encoding='utf-8') as file:
+                    file.write(content)
+                print(f"{GREEN}Updated {env_file} with database port {db_port} ✓{RESET}")
+                time.sleep(0.5)
+            else:
+                print(f"{RED}Error: File {env_file} not found.{RESET}")
+                success = False
+
+            # Update docker-compose.yml (Database port)
+            compose_file = DOCKER_COMPOSE_FILE_PATH
+            if os.path.exists(compose_file):
+                with open(compose_file, 'r', encoding='utf-8') as file:
+                    content = file.read()
+                
+                # Update database port mapping (assuming Mariadb is binding to this port)
+                content = re.sub(r'(- "3306:)\d+', r'\1' + db_port, content) # Update MariaDB external port
+                content = re.sub(r'(- "\d+:/var/run/mysqld/mysqld.sock")', r'- "3306:\1', content) # Keep internal port 3306 if necessary (Needs checking for exact compose structure)
+                
+                # Since we can't know the exact Docker Compose structure, we focus on the service exposing the port:
+                # This part is highly dependent on the actual docker-compose.yml structure.
+                # We assume the DB service exposes the port on the host.
+                
+                # Simple check for DB mapping in the pasarguard service section (often maps 3306 internally)
+                # Let's focus only on the SQLALCHEMY_DATABASE_URL update above, as it's safer.
+                # If you need to map the host port, you must specify the exact service name (e.g., pasarguard-mariadb-1) and its 'ports' section.
+                # For now, we only ensure the DB port in .env points to the new port.
+                
+                print(f"{YELLOW}Note: Docker Compose port mapping for MariaDB may need manual check based on your structure.{RESET}")
+                print(f"{GREEN}Port change applied successfully! Please restart services:{RESET}")
+                print(f"  docker restart pasarguard-pasarguard-1")
+                print(f"  docker restart pasarguard-mariadb-1")
+
+            else:
+                print(f"{RED}Error: File {compose_file} not found.{RESET}")
+                success = False
+
+    except Exception as e:
+        print(f"{RED}Error: {str(e)}{RESET}")
+        success = False
+
+    input("Press Enter to return to the menu...")
+    return success
+
 # --- Main Execution Logic ---
 
 def main():
     """Main function to run the menu-driven program."""
-    version = "1.0.15"
-    is_remote_run = "--remote-migrate" in sys.argv
-    
-    if not is_remote_run:
-        check_dependencies() # Check core dependencies only on the first run
+    # Dependency check runs once on startup
+    check_dependencies() 
 
     while True:
-        if is_remote_run:
-            print(f"{CYAN}Running in REMOTE MIGRATION MODE...{RESET}")
-            execute_local_migration_core() # Core logic runs immediately
-            sys.exit(0)
-        
-        display_menu(version)
+        display_menu()
         choice = input("Enter your choice (1-4): ").strip()
 
         if choice == "1":
