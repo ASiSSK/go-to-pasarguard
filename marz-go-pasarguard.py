@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Marzban to Pasarguard Migration Menu
-Version: 1.0.15 (Final Fix: Re-implementing Backticks for Reserved Keywords)
+Version: 1.5.1
 A tool to change database and phpMyAdmin ports and migrate data from Marzban to Pasarguard.
 Power By: ASiSSK
 """
@@ -35,7 +35,6 @@ MIGRATION_SUMMARY_REPORT: List[str] = []
 
 # --- UI & SYSTEM FUNCTIONS ---
 def clear_screen():
-    # Attempt to clear the screen for better readability
     os.system("clear")
 
 def display_menu():
@@ -43,17 +42,16 @@ def display_menu():
     print(f"{CYAN}╔═════════════════════════════════════════════╗")
     print(f"║{YELLOW}          Power By: ASiSSK                     {CYAN}║")
     print(f"║{YELLOW}          Marz ➔ Pasarguard                  {CYAN}║")
-    print(f"║{YELLOW}              v1.0.15 (Final Fixed)          {CYAN}║")
+    print(f"║{YELLOW}              v1.5.1                         {CYAN}║")
     print(f"╚═════════════════════════════════════════════╝{RESET}")
     print()
     print("Menu:")
     print("1. Change Database and phpMyAdmin Ports (Pasarguard)")
-    print("2. Migrate Marzban to Pasarguard")
+    print("2. Migrate Marzban to Pasarguard (Local Mode Only)")
     print("3. Exit")
     print()
 
 def check_dependencies():
-    """Checks if critical dependencies are imported."""
     try:
         import pymysql
         import dotenv
@@ -189,7 +187,6 @@ def connect(cfg: Dict[str, Any]) -> Optional[pymysql.connections.Connection]:
 # --- MIGRATION FUNCTIONS ---
 
 def migrate_admins(marzban_conn, pasarguard_conn) -> int:
-    """Migrate admins from Marzban to Pasarguard."""
     global MIGRATION_SUMMARY_REPORT
     count = 0
     try:
@@ -198,7 +195,6 @@ def migrate_admins(marzban_conn, pasarguard_conn) -> int:
             admins = cur.fetchall()
 
         with pasarguard_conn.cursor() as cur:
-            # Table creation logic is only executed if table does not exist
             cur.execute("SHOW TABLES LIKE 'admins'")
             if cur.fetchone() is None:
                 cur.execute("""
@@ -234,13 +230,11 @@ def migrate_admins(marzban_conn, pasarguard_conn) -> int:
     return count
 
 def ensure_default_group(pasarguard_conn):
-    """Ensure default group exists in Pasarguard."""
     global MIGRATION_SUMMARY_REPORT
     try:
         with pasarguard_conn.cursor() as cur:
             cur.execute("SHOW TABLES LIKE 'groups'")
             if cur.fetchone() is None:
-                # FIX: Use backticks for 'groups' table to avoid SQL reserved keyword issues
                 cur.execute("""
                     CREATE TABLE `groups` (
                         id INT PRIMARY KEY, name VARCHAR(255) NOT NULL, is_disabled BOOLEAN DEFAULT FALSE
@@ -249,7 +243,6 @@ def ensure_default_group(pasarguard_conn):
                 print(f"{GREEN}Created `groups` table in Pasarguard ✓{RESET}")
                 time.sleep(0.5)
             
-            # FIX: Use backticks for 'groups' table in SELECT
             cur.execute("SELECT COUNT(*) AS cnt FROM `groups` WHERE id = 1")
             if cur.fetchone()["cnt"] == 0:
                 cur.execute("INSERT INTO `groups` (id, name, is_disabled) VALUES (1, 'DefaultGroup', 0)")
@@ -260,13 +253,11 @@ def ensure_default_group(pasarguard_conn):
         MIGRATION_SUMMARY_REPORT.append(f"{YELLOW}Warning: Failed to ensure default group: {str(e)}. This may cause issues.{RESET}")
 
 def ensure_default_core_config(pasarguard_conn):
-    """Ensure default core config exists in Pasarguard."""
     global MIGRATION_SUMMARY_REPORT
     try:
         with pasarguard_conn.cursor() as cur:
             cur.execute("SHOW TABLES LIKE 'core_configs'")
             if cur.fetchone() is None:
-                # FIX: Use backticks for 'core_configs' table
                 cur.execute("""
                     CREATE TABLE `core_configs` (
                         id INT PRIMARY KEY, created_at DATETIME NOT NULL, name VARCHAR(255) NOT NULL,
@@ -276,7 +267,6 @@ def ensure_default_core_config(pasarguard_conn):
                 print(f"{GREEN}Created `core_configs` table in Pasarguard ✓{RESET}")
                 time.sleep(0.5)
             
-            # FIX: Use backticks for 'core_configs' table in SELECT
             cur.execute("SELECT COUNT(*) AS cnt FROM `core_configs` WHERE id = 1")
             if cur.fetchone()["cnt"] == 0:
                 cfg = {
@@ -298,7 +288,6 @@ def ensure_default_core_config(pasarguard_conn):
         MIGRATION_SUMMARY_REPORT.append(f"{YELLOW}Warning: Failed to ensure default core config: {str(e)}. This may cause issues.{RESET}")
 
 def migrate_xray_config(pasarguard_conn, xray_config) -> int:
-    """Migrate xray_config.json to core_configs."""
     global MIGRATION_SUMMARY_REPORT
     if not xray_config: return 0
 
@@ -342,7 +331,6 @@ def migrate_xray_config(pasarguard_conn, xray_config) -> int:
         return 0
 
 def migrate_inbounds_and_associate(marzban_conn, pasarguard_conn) -> int:
-    """Migrate inbounds and associate with default group."""
     global MIGRATION_SUMMARY_REPORT
     count = 0
     try:
@@ -359,7 +347,6 @@ def migrate_inbounds_and_associate(marzban_conn, pasarguard_conn) -> int:
 
             cur.execute("SHOW TABLES LIKE 'inbounds_groups_association'")
             if cur.fetchone() is None:
-                # FIX: Use backticks for 'groups' table reference
                 cur.execute("""
                     CREATE TABLE inbounds_groups_association (
                         inbound_id INT, group_id INT, PRIMARY KEY (inbound_id, group_id),
@@ -380,7 +367,6 @@ def migrate_inbounds_and_associate(marzban_conn, pasarguard_conn) -> int:
     return count
 
 def migrate_hosts(marzban_conn, pasarguard_conn, safe_alpn_func) -> int:
-    """Migrate hosts with ALPN fix and default values for optional fields."""
     global MIGRATION_SUMMARY_REPORT
     count = 0
     try:
@@ -444,7 +430,6 @@ def migrate_hosts(marzban_conn, pasarguard_conn, safe_alpn_func) -> int:
     return count
 
 def migrate_nodes(marzban_conn, pasarguard_conn) -> int:
-    """Migrate nodes."""
     global MIGRATION_SUMMARY_REPORT
     count = 0
     try:
@@ -455,7 +440,6 @@ def migrate_nodes(marzban_conn, pasarguard_conn) -> int:
         with pasarguard_conn.cursor() as cur:
             cur.execute("SHOW TABLES LIKE 'nodes'")
             if cur.fetchone() is None:
-                # FIX: Use backticks for 'core_configs' table reference
                 cur.execute("""
                     CREATE TABLE nodes (
                         id INT PRIMARY KEY, name VARCHAR(255) NOT NULL, address VARCHAR(255) NOT NULL,
@@ -506,7 +490,6 @@ def migrate_nodes(marzban_conn, pasarguard_conn) -> int:
     return count
 
 def migrate_users_and_proxies(marzban_conn, pasarguard_conn) -> int:
-    """Migrate users and their proxy settings."""
     global MIGRATION_SUMMARY_REPORT
     total_users = 0
     
@@ -623,9 +606,7 @@ def change_db_port() -> bool:
                 content = file.read()
             content = re.sub(r'DB_PORT=\d+', f'DB_PORT={db_port}', content, 1) if re.search(r'DB_PORT=\d+', content) else content + f'\nDB_PORT={db_port}\n'
             
-            # Smartly update SQLALCHEMY_DATABASE_URL port
             def replace_db_port(match):
-                # Replace the port number in the matched URL string with the new db_port
                 return re.sub(r':\d+/', f':{db_port}/', match.group(0))
 
             content = re.sub(
@@ -647,18 +628,15 @@ def change_db_port() -> bool:
             with open(compose_file, 'r', encoding='utf-8') as file:
                 content = file.read()
             
-            # Update MariaDB/DB port in docker-compose.yml
             if re.search(r'--port=\d+', content):
                 content = re.sub(r'--port=\d+', f'--port={db_port}', content)
             else:
-                # Fallback insertion (less robust, but attempts to ensure the command is correct)
                 content = re.sub(
                     r'(command:\n\s+- --bind-address=127\.0\.0\.1)',
                     f'command:\n      - --port={db_port}\n      - --bind-address=127.0.0.1',
                     content
                 )
             
-            # Update PMA_PORT environment variable (for phpMyAdmin to connect to the DB)
             if re.search(r'PMA_PORT: \d+', content):
                 content = re.sub(r'PMA_PORT: \d+', f'PMA_PORT: {db_port}', content)
             else:
@@ -668,7 +646,6 @@ def change_db_port() -> bool:
                     content
                 )
             
-            # Update APACHE_PORT environment variable (for exposing phpMyAdmin port)
             if re.search(r'APACHE_PORT: \d+', content):
                 content = re.sub(r'APACHE_PORT: \d+', f'APACHE_PORT: {apache_port}', content)
             else:
@@ -700,7 +677,6 @@ def change_db_port() -> bool:
     return success
 
 def check_file_access(mode: str) -> bool:
-    """Check access to necessary files based on migration mode."""
     print(f"{CYAN}Checking file access...{RESET}")
     success = True
     
@@ -719,10 +695,8 @@ def check_file_access(mode: str) -> bool:
             (XRAY_CONFIG_PATH, "xray_config.json")
         ]
         for file_path, file_name in marzban_files:
-            if not os.path.exists(file_path):
-                print(f"{YELLOW}Warning: {file_name} not found at {file_path}. DB config will be asked manually (if .env is missing) and Xray config will be skipped.{RESET}")
-            elif not os.access(file_path, os.R_OK):
-                print(f"{YELLOW}Warning: No read permission for {file_name} at {file_path}. DB config will be asked manually (if .env is missing) and Xray config will be skipped.{RESET}")
+            if not os.path.exists(file_path) or not os.access(file_path, os.R_OK):
+                print(f"{YELLOW}Warning: Could not access {file_name} at {file_path}. Migration may fail or skip Xray config.{RESET}")
     
     print(f"{GREEN}Pasarguard file access OK ✓{RESET}")
     time.sleep(0.5)
@@ -732,12 +706,11 @@ def get_marzban_config_mode() -> Tuple[Optional[Dict[str, Any]], Optional[Dict[s
     global MIGRATION_SUMMARY_REPORT
     clear_screen()
     print(f"{CYAN}=== Marzban Configuration Source ==={RESET}")
-    print("How do you want to provide Marzban Database configuration?")
-    print("1. Local File: Load from local /opt/marzban/.env (Marzban on the same server)")
-    print("2. Manual Input: Enter connection details (Marzban on a different server or .env not accessible)")
-    print("3. Back to Main Menu")
+    print("For migration, only Local File mode is supported.")
+    print("1. Local File: Load from /opt/marzban/.env (Marzban on the same server)")
+    print("2. Back to Main Menu")
     
-    choice = input("Enter your choice (1-3): ").strip()
+    choice = input("Enter your choice (1-2): ").strip()
     
     marzban_config = None
     pasarguard_config = None
@@ -752,14 +725,6 @@ def get_marzban_config_mode() -> Tuple[Optional[Dict[str, Any]], Optional[Dict[s
             xray_config = read_xray_config()
         pasarguard_config = get_db_config(PASARGUARD_ENV_PATH, "Pasarguard", manual_input=False)
     elif choice == "2":
-        print(f"{CYAN}Manually entering Marzban config...{RESET}")
-        if not check_file_access('remote'):
-             return None, None, None
-        marzban_config = get_db_config(MARZBAN_ENV_PATH, "Marzban", manual_input=True)
-        pasarguard_config = get_db_config(PASARGUARD_ENV_PATH, "Pasarguard", manual_input=False)
-        print(f"{YELLOW}Note: Since Marzban is remote or inaccessible, Xray config will be skipped.{RESET}")
-        MIGRATION_SUMMARY_REPORT.append(f"{YELLOW}Note: Xray config migration skipped (Remote/Manual Marzban config).{RESET}")
-    elif choice == "3":
         return None, None, None
     else:
         print(f"{RED}Invalid choice. Returning to Main Menu.{RESET}")
@@ -769,7 +734,6 @@ def get_marzban_config_mode() -> Tuple[Optional[Dict[str, Any]], Optional[Dict[s
     return marzban_config, pasarguard_config, xray_config
 
 def migrate_marzban_to_pasarguard():
-    """Migrate data from Marzban to Pasarguard."""
     global MIGRATION_SUMMARY_REPORT
     MIGRATION_SUMMARY_REPORT = []
     clear_screen()
@@ -783,7 +747,6 @@ def migrate_marzban_to_pasarguard():
         input("Press Enter to return to the menu...")
         return False
     
-    # Critical safety check
     if (marzban_config['host'] == pasarguard_config['host'] and
         marzban_config['port'] == pasarguard_config['port'] and
         marzban_config['db'] == pasarguard_config['db']):
@@ -804,7 +767,6 @@ def migrate_marzban_to_pasarguard():
         input("Press Enter to return to the menu...")
         return False
     
-    # --- START MIGRATION ---
     print(f"{CYAN}============================================================{RESET}")
     print(f"{CYAN}STARTING MIGRATION (Non-Fatal Errors will be logged as Warnings){RESET}")
     print(f"{CYAN}============================================================{RESET}")
@@ -847,8 +809,6 @@ def migrate_marzban_to_pasarguard():
     print(f"{GREEN}{user_count} user(s) migrated (or skipped on error).{RESET}")
     time.sleep(0.5)
 
-    # --- END MIGRATION ---
-
     print(f"{CYAN}============================================================{RESET}")
     print(f"{GREEN}MIGRATION ATTEMPT COMPLETED!{RESET}")
     print("Please restart Pasarguard and Xray services:")
@@ -871,7 +831,6 @@ def migrate_marzban_to_pasarguard():
     return True
 
 def main():
-    """Main function to run the menu-driven program."""
     if os.geteuid() != 0:
         print(f"{RED}This script must be run as root. Please run with sudo or as the root user.{RESET}")
         sys.exit(1)
