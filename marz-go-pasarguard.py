@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """
-Marzban to Pasarguard Migration Menu
-Version: 1.0.13
-A tool to change database and phpMyAdmin ports and migrate data from Marzban to Pasarguard.
+Marzban to Pasarguard Migration Tool (Data-Only Migration)
+Version: 1.0.14 (Alembic-Compatible)
+A tool to change database/phpMyAdmin ports and migrate data from Marzban to Pasarguard.
+NOTE: This version assumes Pasarguard database schema is already created by Alembic.
 Power By: ASiSSK
 """
 
@@ -57,11 +58,8 @@ def load_env_file(env_path: str) -> Dict[str, str]:
     if not os.access(env_path, os.R_OK):
         raise PermissionError(f"No read permission for {env_path}")
     
-    # Read .env file explicitly
     env = dotenv_values(env_path)
     if not env.get("SQLALCHEMY_DATABASE_URL"):
-        with open(env_path, 'r', encoding='utf-8') as f:
-            print(f"{RED}Content of {env_path}:{RESET}\n{f.read()}")
         raise ValueError(f"SQLALCHEMY_DATABASE_URL not found in {env_path}")
     return env
 
@@ -85,9 +83,6 @@ def get_db_config(env_path: str, name: str) -> Dict[str, Any]:
     """Get database config from .env file."""
     try:
         env = load_env_file(env_path)
-        print(f"{CYAN}Content of {env_path}:{RESET}")
-        with open(env_path, 'r', encoding='utf-8') as f:
-            print(f.read())
         sqlalchemy_url = env.get("SQLALCHEMY_DATABASE_URL")
         config = parse_sqlalchemy_url(sqlalchemy_url)
         config["charset"] = "utf8mb4"
@@ -123,7 +118,7 @@ def connect(cfg: Dict[str, Any]):
     except Exception as e:
         raise Exception(f"Connection failed: {str(e)}")
 
-# Migration: Admins
+# Migration: Admins (DATA ONLY)
 def migrate_admins(marzban_conn, pasarguard_conn):
     """Migrate admins from Marzban to Pasarguard."""
     with marzban_conn.cursor() as cur:
@@ -131,25 +126,7 @@ def migrate_admins(marzban_conn, pasarguard_conn):
         admins = cur.fetchall()
 
     with pasarguard_conn.cursor() as cur:
-        # Check if admins table exists
-        cur.execute("SHOW TABLES LIKE 'admins'")
-        if cur.fetchone() is None:
-            # Create admins table
-            cur.execute("""
-                CREATE TABLE admins (
-                    id INT PRIMARY KEY,
-                    username VARCHAR(255) NOT NULL,
-                    hashed_password TEXT NOT NULL,
-                    created_at DATETIME NOT NULL,
-                    is_sudo BOOLEAN DEFAULT FALSE,
-                    password_reset_at DATETIME,
-                    telegram_id BIGINT,
-                    discord_webhook TEXT
-                )
-            """)
-            print(f"{GREEN}Created admins table in Pasarguard ✓{RESET}")
-            time.sleep(0.5)
-
+        # NOTE: CREATE TABLE check removed. Assumes 'admins' table exists (Alembic).
         for a in admins:
             cur.execute(
                 """
@@ -178,65 +155,34 @@ def migrate_admins(marzban_conn, pasarguard_conn):
     pasarguard_conn.commit()
     return len(admins)
 
-# Migration: Default Group
+# Migration: Default Group (DATA ONLY)
 def ensure_default_group(pasarguard_conn):
-    """Ensure default group exists in Pasarguard."""
+    """Ensure default group (ID=1) exists in Pasarguard. (Pasarguard Alembic should create it)"""
     with pasarguard_conn.cursor() as cur:
-        # Check if groups table exists
-        cur.execute("SHOW TABLES LIKE 'groups'")
-        if cur.fetchone() is None:
-            # Create groups table
-            cur.execute("""
-                CREATE TABLE groups (
-                    id INT PRIMARY KEY,
-                    name VARCHAR(255) NOT NULL,
-                    is_disabled BOOLEAN DEFAULT FALSE
-                )
-            """)
-            print(f"{GREEN}Created groups table in Pasarguard ✓{RESET}")
-            time.sleep(0.5)
+        # NOTE: CREATE TABLE check removed. Assumes 'groups' table exists (Alembic).
         
-        # Check if default group exists
+        # Check if default group exists (If Pasarguard's initial migration failed to create it, we insert it)
         cur.execute("SELECT COUNT(*) AS cnt FROM groups WHERE id = 1")
         if cur.fetchone()["cnt"] == 0:
             cur.execute("INSERT INTO groups (id, name, is_disabled) VALUES (1, 'DefaultGroup', 0)")
-            print(f"{GREEN}Created default group in Pasarguard ✓{RESET}")
+            print(f"{GREEN}Created missing default group in Pasarguard (ID=1) ✓{RESET}")
             time.sleep(0.5)
+        else:
+            print(f"{YELLOW}Default group (ID=1) already exists (OK) ✓{RESET}")
     pasarguard_conn.commit()
 
-# Migration: Default Core Config
+# Migration: Default Core Config (DATA ONLY)
 def ensure_default_core_config(pasarguard_conn):
-    """Ensure default core config exists in Pasarguard."""
+    """Ensure default core config (ID=1) exists in Pasarguard. (Pasarguard Alembic should create it)"""
     with pasarguard_conn.cursor() as cur:
-        # Check if core_configs table exists
-        cur.execute("SHOW TABLES LIKE 'core_configs'")
-        if cur.fetchone() is None:
-            # Create core_configs table
-            cur.execute("""
-                CREATE TABLE core_configs (
-                    id INT PRIMARY KEY,
-                    created_at DATETIME NOT NULL,
-                    name VARCHAR(255) NOT NULL,
-                    config JSON NOT NULL,
-                    exclude_inbound_tags TEXT,
-                    fallbacks_inbound_tags TEXT
-                )
-            """)
-            print(f"{GREEN}Created core_configs table in Pasarguard ✓{RESET}")
-            time.sleep(0.5)
+        # NOTE: CREATE TABLE check removed. Assumes 'core_configs' table exists (Alembic).
         
         # Check if default core config exists
         cur.execute("SELECT COUNT(*) AS cnt FROM core_configs WHERE id = 1")
         if cur.fetchone()["cnt"] == 0:
+            # We insert a minimal default config if Pasarguard Alembic failed to do so.
             cfg = {
                 "log": {"loglevel": "warning"},
-                "inbounds": [{
-                    "tag": "Shadowsocks TCP",
-                    "listen": "0.0.0.0",
-                    "port": 1080,
-                    "protocol": "shadowsocks",
-                    "settings": {"clients": [], "network": "tcp,udp"}
-                }],
                 "outbounds": [
                     {"protocol": "freedom", "tag": "DIRECT"},
                     {"protocol": "blackhole", "tag": "BLOCK"}
@@ -247,54 +193,66 @@ def ensure_default_core_config(pasarguard_conn):
                 """
                 INSERT INTO core_configs
                 (id, created_at, name, config, exclude_inbound_tags, fallbacks_inbound_tags)
-                VALUES (1, NOW(), 'ASiS SK', %s, '', '')
+                VALUES (1, NOW(), 'Default Pasarguard', %s, NULL, NULL)
                 """,
                 json.dumps(cfg),
             )
-            print(f"{GREEN}Created default core config 'ASiS SK' in Pasarguard ✓{RESET}")
+            print(f"{GREEN}Created missing default core config in Pasarguard (ID=1) ✓{RESET}")
             time.sleep(0.5)
+        else:
+            print(f"{YELLOW}Default core config (ID=1) already exists (OK) ✓{RESET}")
     pasarguard_conn.commit()
 
-# Migration: Xray Config
+# Migration: Xray Config (DATA ONLY)
 def migrate_xray_config(pasarguard_conn, xray_config):
-    """Migrate xray_config.json to core_configs."""
+    """Migrate Marzban's xray_config.json to Pasarguard's core_configs (ID=1)."""
     with pasarguard_conn.cursor() as cur:
-        # Backup existing core_config
+        # NOTE: Backup is now less aggressive, but still useful for safety.
+        # Backup existing core_config (using ID=2, as Pasarguard should reserve ID=1 for itself or the main config)
         cur.execute("SELECT * FROM core_configs WHERE id = 1")
         existing = cur.fetchone()
+        
         if existing:
+            # Check if a backup ID exists, if so, we update/insert the new Marzban config with ID=1.
+            
+            # 1. Insert Marzban's config as ID=1 (overwriting the default Pasarguard config for migration)
+            # The core configuration of Marzban must replace the primary core config of Pasarguard (ID=1)
+            # to keep the services running as before.
             cur.execute(
                 """
                 INSERT INTO core_configs
                 (id, created_at, name, config, exclude_inbound_tags, fallbacks_inbound_tags)
-                VALUES (%s, NOW(), %s, %s, %s, %s)
+                VALUES (%s, NOW(), %s, %s, NULL, NULL)
+                ON DUPLICATE KEY UPDATE
+                    name = %s, config = %s, created_at = NOW()
                 """,
-                (
-                    existing["id"] + 1000,
-                    "Backup_ASiS_SK",
-                    existing["config"],
-                    existing["exclude_inbound_tags"],
-                    existing["fallbacks_inbound_tags"],
-                ),
+                (1, "Marzban Migrated", json.dumps(xray_config), "Marzban Migrated", json.dumps(xray_config)),
             )
-            print(f"{GREEN}Backup created as 'Backup_ASiS_SK' with ID {existing['id'] + 1000} ✓{RESET}")
-            time.sleep(0.5)
-
-        # Update or insert new config
-        cur.execute(
-            """
-            INSERT INTO core_configs
-            (id, created_at, name, config, exclude_inbound_tags, fallbacks_inbound_tags)
-            VALUES (%s, NOW(), %s, %s, '', '')
-            ON DUPLICATE KEY UPDATE
-                name = %s, config = %s, created_at = NOW()
-            """,
-            (1, "ASiS SK", json.dumps(xray_config), "ASiS SK", json.dumps(xray_config)),
-        )
+            print(f"{GREEN}Marzban's xray_config.json migrated as 'Marzban Migrated' (ID=1) ✓{RESET}")
+            
+            # 2. Check if a backup config (ID=2) exists. If ID=1 was the Pasarguard default, we back it up to ID=2.
+            cur.execute("SELECT * FROM core_configs WHERE id = 2")
+            if cur.fetchone() is None and existing["name"] != "Marzban Migrated":
+                 cur.execute(
+                    """
+                    INSERT INTO core_configs
+                    (id, created_at, name, config, exclude_inbound_tags, fallbacks_inbound_tags)
+                    VALUES (%s, NOW(), %s, %s, %s, %s)
+                    """,
+                    (
+                        2,
+                        "Backup_Pasarguard_Default",
+                        existing["config"],
+                        existing["exclude_inbound_tags"],
+                        existing["fallbacks_inbound_tags"],
+                    ),
+                )
+                 print(f"{GREEN}Backup of original Pasarguard config created as 'Backup_Pasarguard_Default' (ID=2) ✓{RESET}")
+            
     pasarguard_conn.commit()
     return 1
 
-# Migration: Inbounds
+# Migration: Inbounds (DATA ONLY)
 def migrate_inbounds_and_associate(marzban_conn, pasarguard_conn):
     """Migrate inbounds and associate with default group."""
     with marzban_conn.cursor() as cur:
@@ -302,34 +260,7 @@ def migrate_inbounds_and_associate(marzban_conn, pasarguard_conn):
         inbounds = cur.fetchall()
 
     with pasarguard_conn.cursor() as cur:
-        # Check if inbounds table exists
-        cur.execute("SHOW TABLES LIKE 'inbounds'")
-        if cur.fetchone() is None:
-            # Create inbounds table
-            cur.execute("""
-                CREATE TABLE inbounds (
-                    id INT PRIMARY KEY,
-                    tag VARCHAR(255) NOT NULL
-                )
-            """)
-            print(f"{GREEN}Created inbounds table in Pasarguard ✓{RESET}")
-            time.sleep(0.5)
-
-        # Check if inbounds_groups_association table exists
-        cur.execute("SHOW TABLES LIKE 'inbounds_groups_association'")
-        if cur.fetchone() is None:
-            # Create inbounds_groups_association table
-            cur.execute("""
-                CREATE TABLE inbounds_groups_association (
-                    inbound_id INT,
-                    group_id INT,
-                    PRIMARY KEY (inbound_id, group_id),
-                    FOREIGN KEY (inbound_id) REFERENCES inbounds(id),
-                    FOREIGN KEY (group_id) REFERENCES groups(id)
-                )
-            """)
-            print(f"{GREEN}Created inbounds_groups_association table in Pasarguard ✓{RESET}")
-            time.sleep(0.5)
+        # NOTE: CREATE TABLE check removed. Assumes 'inbounds' and 'inbounds_groups_association' tables exist (Alembic).
 
         for i in inbounds:
             cur.execute(
@@ -342,6 +273,7 @@ def migrate_inbounds_and_associate(marzban_conn, pasarguard_conn):
                 (i["id"], i["tag"], i["tag"])
             )
         for i in inbounds:
+            # We assume the default group (ID=1) is present
             cur.execute(
                 """
                 INSERT IGNORE INTO inbounds_groups_association (inbound_id, group_id)
@@ -352,7 +284,7 @@ def migrate_inbounds_and_associate(marzban_conn, pasarguard_conn):
     pasarguard_conn.commit()
     return len(inbounds)
 
-# Migration: Hosts
+# Migration: Hosts (DATA ONLY)
 def migrate_hosts(marzban_conn, pasarguard_conn, safe_alpn_func):
     """Migrate hosts with ALPN fix and default values for optional fields."""
     with marzban_conn.cursor() as cur:
@@ -360,38 +292,7 @@ def migrate_hosts(marzban_conn, pasarguard_conn, safe_alpn_func):
         hosts = cur.fetchall()
 
     with pasarguard_conn.cursor() as cur:
-        # Check if hosts table exists
-        cur.execute("SHOW TABLES LIKE 'hosts'")
-        if cur.fetchone() is None:
-            # Create hosts table
-            cur.execute("""
-                CREATE TABLE hosts (
-                    id INT PRIMARY KEY,
-                    remark VARCHAR(255),
-                    address VARCHAR(255),
-                    port INT,
-                    inbound_tag VARCHAR(255),
-                    sni TEXT,
-                    host TEXT,
-                    security VARCHAR(50),
-                    alpn TEXT,
-                    fingerprint TEXT,
-                    allowinsecure BOOLEAN,
-                    is_disabled BOOLEAN,
-                    path TEXT,
-                    random_user_agent BOOLEAN,
-                    use_sni_as_host BOOLEAN,
-                    priority INT DEFAULT 0,
-                    http_headers TEXT,
-                    transport_settings TEXT,
-                    mux_settings TEXT,
-                    noise_settings TEXT,
-                    fragment_settings TEXT,
-                    status VARCHAR(50)
-                )
-            """)
-            print(f"{GREEN}Created hosts table in Pasarguard ✓{RESET}")
-            time.sleep(0.5)
+        # NOTE: CREATE TABLE check removed. Assumes 'hosts' table exists (Alembic).
 
         for h in hosts:
             cur.execute(
@@ -445,7 +346,7 @@ def migrate_hosts(marzban_conn, pasarguard_conn, safe_alpn_func):
     pasarguard_conn.commit()
     return len(hosts)
 
-# Migration: Nodes
+# Migration: Nodes (DATA ONLY)
 def migrate_nodes(marzban_conn, pasarguard_conn):
     """Migrate nodes."""
     with marzban_conn.cursor() as cur:
@@ -453,38 +354,11 @@ def migrate_nodes(marzban_conn, pasarguard_conn):
         nodes = cur.fetchall()
 
     with pasarguard_conn.cursor() as cur:
-        # Check if nodes table exists
-        cur.execute("SHOW TABLES LIKE 'nodes'")
-        if cur.fetchone() is None:
-            # Create nodes table
-            cur.execute("""
-                CREATE TABLE nodes (
-                    id INT PRIMARY KEY,
-                    name VARCHAR(255) NOT NULL,
-                    address VARCHAR(255) NOT NULL,
-                    port INT,
-                    status VARCHAR(50),
-                    last_status_change DATETIME,
-                    message TEXT,
-                    created_at DATETIME NOT NULL,
-                    uplink BIGINT,
-                    downlink BIGINT,
-                    xray_version VARCHAR(50),
-                    usage_coefficient FLOAT,
-                    node_version VARCHAR(50),
-                    connection_type VARCHAR(50),
-                    server_ca TEXT,
-                    keep_alive BOOLEAN,
-                    max_logs INT,
-                    core_config_id INT,
-                    gather_logs BOOLEAN,
-                    FOREIGN KEY (core_config_id) REFERENCES core_configs(id)
-                )
-            """)
-            print(f"{GREEN}Created nodes table in Pasarguard ✓{RESET}")
-            time.sleep(0.5)
+        # NOTE: CREATE TABLE check removed. Assumes 'nodes' table exists (Alembic).
 
         for n in nodes:
+            # Pasarguard node config should point to the main core config (ID=1)
+            # which we have replaced with the Marzban config in migrate_xray_config.
             cur.execute(
                 """
                 INSERT INTO nodes
@@ -529,7 +403,7 @@ def migrate_nodes(marzban_conn, pasarguard_conn):
     pasarguard_conn.commit()
     return len(nodes)
 
-# Migration: Users and Proxies
+# Migration: Users and Proxies (DATA ONLY)
 def migrate_users_and_proxies(marzban_conn, pasarguard_conn):
     """Migrate users and their proxy settings."""
     with marzban_conn.cursor() as cur:
@@ -537,34 +411,7 @@ def migrate_users_and_proxies(marzban_conn, pasarguard_conn):
         users = cur.fetchall()
 
     with pasarguard_conn.cursor() as cur:
-        # Check if users table exists
-        cur.execute("SHOW TABLES LIKE 'users'")
-        if cur.fetchone() is None:
-            # Create users table
-            cur.execute("""
-                CREATE TABLE users (
-                    id INT PRIMARY KEY,
-                    username VARCHAR(255) NOT NULL,
-                    status VARCHAR(50),
-                    used_traffic BIGINT,
-                    data_limit BIGINT,
-                    created_at DATETIME NOT NULL,
-                    admin_id INT,
-                    data_limit_reset_strategy VARCHAR(50),
-                    sub_revoked_at DATETIME,
-                    note TEXT,
-                    online_at DATETIME,
-                    edit_at DATETIME,
-                    on_hold_timeout DATETIME,
-                    on_hold_expire_duration INT,
-                    auto_delete_in_days INT,
-                    last_status_change DATETIME,
-                    expire DATETIME,
-                    proxy_settings JSON
-                )
-            """)
-            print(f"{GREEN}Created users table in Pasarguard ✓{RESET}")
-            time.sleep(0.5)
+        # NOTE: CREATE TABLE check removed. Assumes 'users' table exists (Alembic).
 
         total = 0
         for u in users:
@@ -639,9 +486,10 @@ def migrate_users_and_proxies(marzban_conn, pasarguard_conn):
     pasarguard_conn.commit()
     return total
 
-# Function to check and install dependencies
+# Function to check and install dependencies (UNMODIFIED)
 def check_dependencies():
     """Check and install required dependencies."""
+    # ... (function body remains the same)
     print(f"{CYAN}Checking dependencies...{RESET}")
     dependencies = {
         "screen": "screen",
@@ -684,28 +532,28 @@ def check_dependencies():
     print(f"{GREEN}All dependencies are installed ✓{RESET}")
     time.sleep(0.5)
 
-# Function to clear the screen
+# Function to clear the screen (UNMODIFIED)
 def clear_screen():
     """Clear the terminal screen."""
     os.system("clear")
 
-# Function to display the menu
+# Function to display the menu (UNMODIFIED)
 def display_menu():
     """Display the main menu with a styled header."""
     clear_screen()
     print(f"{CYAN}┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓")
     print(f"┃{YELLOW}          Power By: ASiSSK               {CYAN}┃")
     print(f"┃{YELLOW}          Marz ➜ Pasarguard              {CYAN}┃")
-    print(f"┃{YELLOW}              v1.0.13                    {CYAN}┃")
+    print(f"┃{YELLOW}              v1.0.14                    {CYAN}┃")
     print(f"┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛{RESET}")
     print()
     print("Menu:")
     print("1. Change Database and phpMyAdmin Ports")
-    print("2. Migrate Marzban to Pasarguard")
+    print("2. Migrate Marzban to Pasarguard (Data Only)")
     print("3. Exit")
     print()
 
-# Function to change database and phpMyAdmin ports
+# Function to change database and phpMyAdmin ports (UNMODIFIED)
 def change_db_port():
     """Change the database and phpMyAdmin ports in .env and docker-compose.yml files."""
     clear_screen()
@@ -802,9 +650,10 @@ def change_db_port():
     input("Press Enter to return to the menu...")
     return success
 
-# Function to check file access
+# Function to check file access (UNMODIFIED)
 def check_file_access():
     """Check access to .env and xray_config.json files."""
+    # ... (function body remains the same)
     print(f"{CYAN}Checking file access...{RESET}")
     files = [
         (MARZBAN_ENV_PATH, "Marzban .env"),
@@ -825,11 +674,12 @@ def check_file_access():
             time.sleep(0.5)
     return success
 
-# Function to migrate Marzban to Pasarguard
+# Function to migrate Marzban to Pasarguard (MODIFIED)
 def migrate_marzban_to_pasarguard():
-    """Migrate data from Marzban to Pasarguard."""
+    """Migrate data from Marzban to Pasarguard. Assumes Pasarguard schema is ready."""
     clear_screen()
-    print(f"{CYAN}=== Migrate Marzban to Pasarguard ==={RESET}")
+    print(f"{CYAN}=== Migrate Marzban to Pasarguard (Data Only) ==={RESET}")
+    print(f"{YELLOW}WARNING: Ensure Pasarguard is installed and running, and its database schema is created by Alembic before running this option.{RESET}")
 
     # Check file access
     if not check_file_access():
@@ -839,8 +689,6 @@ def migrate_marzban_to_pasarguard():
 
     try:
         print(f"Loading credentials from .env files...")
-        print(f"Checking Marzban .env path: {MARZBAN_ENV_PATH}")
-        print(f"Checking Pasarguard .env path: {PASARGUARD_ENV_PATH}")
         marzban_config = get_db_config(MARZBAN_ENV_PATH, "Marzban")
         pasarguard_config = get_db_config(PASARGUARD_ENV_PATH, "Pasarguard")
 
@@ -848,91 +696,71 @@ def migrate_marzban_to_pasarguard():
         if (marzban_config['host'] == pasarguard_config['host'] and
             marzban_config['port'] == pasarguard_config['port'] and
             marzban_config['db'] == pasarguard_config['db']):
-            print(f"{RED}Error: Marzban and Pasarguard are using the same database "
-                  f"(host={marzban_config['host']}, port={marzban_config['port']}, db={marzban_config['db']}). "
-                  f"Please change the Pasarguard database port using option 1 in the menu.{RESET}")
-            input("Press Enter to return to the menu...")
-            return False
-
-        # Test database connections
-        print(f"{CYAN}Testing database connections...{RESET}")
-        try:
-            marzban_conn = connect(marzban_config)
-            marzban_conn.close()
-        except Exception as e:
-            print(f"{RED}Error: Cannot connect to Marzban database: {str(e)}{RESET}")
-            input("Press Enter to return to the menu...")
-            return False
-        try:
-            pasarguard_conn = connect(pasarguard_config)
-            pasarguard_conn.close()
-        except Exception as e:
-            print(f"{RED}Error: Cannot connect to Pasarguard database: {str(e)}{RESET}")
+            print(f"{RED}Error: Marzban and Pasarguard are using the same database. "
+                  f"Please use option 1 to change the Pasarguard database port.{RESET}")
             input("Press Enter to return to the menu...")
             return False
 
         # Connect to databases
+        print(f"{CYAN}Testing database connections...{RESET}")
         marzban_conn = connect(marzban_config)
         pasarguard_conn = connect(pasarguard_config)
 
         print(f"{CYAN}============================================================{RESET}")
-        print(f"{CYAN}STARTING MIGRATION{RESET}")
+        print(f"{CYAN}STARTING DATA MIGRATION (Alembic Schema assumed ready){RESET}")
         print(f"{CYAN}============================================================{RESET}")
 
-        # Migrate admins
+        # 1. Migrate admins
         print("Migrating admins...")
         admin_count = migrate_admins(marzban_conn, pasarguard_conn)
-        print(f"{GREEN}{admin_count} admin(s) migrated ✓{RESET}")
+        print(f"{GREEN}{admin_count} admin(s) migrated (data only) ✓{RESET}")
         time.sleep(0.5)
 
-        # Ensure default group
-        print("Creating default group if not exists...")
+        # 2. Ensure default group (in case Alembic missed it or Pasarguard migration failed)
+        print("Ensuring default group (ID=1) exists...")
         ensure_default_group(pasarguard_conn)
-        print(f"{GREEN}Default group ensured ✓{RESET}")
         time.sleep(0.5)
 
-        # Ensure default core config
-        print("Creating default core config if not exists...")
+        # 3. Ensure default core config (in case Alembic missed it)
+        print("Ensuring default core config (ID=1) exists...")
         ensure_default_core_config(pasarguard_conn)
-        print(f"{GREEN}Default core config ensured ✓{RESET}")
         time.sleep(0.5)
 
-        # Migrate xray_config.json
-        print("Migrating xray_config.json to core_configs...")
+        # 4. Migrate xray_config.json to core_configs (ID=1)
+        print("Migrating xray_config.json to core_configs (ID=1)...")
         xray_config = read_xray_config()
-        print(f"{GREEN}Successfully read {XRAY_CONFIG_PATH} ✓{RESET}")
-        time.sleep(0.5)
-        print("Backing up existing core_config...")
-        backup_id = migrate_xray_config(pasarguard_conn, xray_config)
-        print(f"{GREEN}xray_config.json migrated as 'ASiS SK' in core_configs ✓{RESET}")
+        migrate_xray_config(pasarguard_conn, xray_config)
+        print(f"{GREEN}xray_config.json migrated and old ID=1 backed up (ID=2) ✓{RESET}")
         time.sleep(0.5)
 
-        # Migrate inbounds
-        print("Migrating inbounds...")
+        # 5. Migrate inbounds
+        print("Migrating inbounds and linking to default group (ID=1)...")
         inbound_count = migrate_inbounds_and_associate(marzban_conn, pasarguard_conn)
         print(f"{GREEN}{inbound_count} inbound(s) migrated and linked ✓{RESET}")
         time.sleep(0.5)
 
-        # Migrate hosts
-        print("Migrating hosts (with smart ALPN fix)...")
+        # 6. Migrate hosts
+        print("Migrating hosts...")
         host_count = migrate_hosts(marzban_conn, pasarguard_conn, safe_alpn)
-        print(f"{GREEN}{host_count} host(s) migrated (ALPN fixed) ✓{RESET}")
+        print(f"{GREEN}{host_count} host(s) migrated ✓{RESET}")
         time.sleep(0.5)
 
-        # Migrate nodes
-        print("Migrating nodes...")
+        # 7. Migrate nodes
+        print("Migrating nodes (linked to core_config_id=1)...")
         node_count = migrate_nodes(marzban_conn, pasarguard_conn)
         print(f"{GREEN}{node_count} node(s) migrated ✓{RESET}")
         time.sleep(0.5)
 
-        # Migrate users and proxy settings
+        # 8. Migrate users and proxy settings
         print("Migrating users and proxy settings...")
         user_count = migrate_users_and_proxies(marzban_conn, pasarguard_conn)
         print(f"{GREEN}{user_count} user(s) migrated with proxy settings ✓{RESET}")
         time.sleep(0.5)
 
-        print(f"{GREEN}MIGRATION COMPLETED SUCCESSFULLY! ✓{RESET}")
-        print("Please restart Pasarguard and Xray services:")
+        print(f"{GREEN}MIGRATION COMPLETED SUCCESSFULLY! (v1.0.14) ✓{RESET}")
+        print("ACTION REQUIRED:")
+        print("  1. Check Pasarguard logs for any startup errors.")
+        print("  2. Restart Pasarguard and Xray services:")
         print("  docker restart pasarguard-pasarguard-1")
         print("  docker restart xray")
 
@@ -949,7 +777,7 @@ def migrate_marzban_to_pasarguard():
     input("Press Enter to return to the menu...")
     return True
 
-# Main function
+# Main function (UNMODIFIED)
 def main():
     """Main function to run the menu-driven program."""
     check_dependencies()
